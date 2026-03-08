@@ -1,0 +1,18 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "device_state.c"
+        "gatt_server.c"
+        "ble_init.c"
+        "temperature.c"
+        "relay.c"
+        "scheduler.c"
+        "nvs_store.c"
+        "wifi_prov.c"
+        "time_sync.c"
+        "event_buffer.c"
+        "button.c"
+        "firebase_auth.c"
+        "firebase_rtdb.c"
+    INCLUDE_DIRS "."
+)
