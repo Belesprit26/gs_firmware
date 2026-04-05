@@ -40,6 +40,8 @@ static char          s_pass[65]    = {0};    // max WiFi password length
 static char          s_user_id[64] = {0};    // Firebase UID
 static char          s_nickname[PROV_NICKNAME_MAX + 1] = {0};
 static bool          s_wifi_requested = false;  // true if WiFi creds were written this session
+static bool          s_prov_in_progress = false; // guards against concurrent prov_connect_task
+static portMUX_TYPE  s_prov_mux = portMUX_INITIALIZER_UNLOCKED;
 
 // Firebase auth data received via BLE (0x15)
 #define AUTH_REFRESH_MAX 512
@@ -296,7 +298,6 @@ static void prov_connect_task(void *param) {
         notify_prov_status(PROV_CONNECTING);
 
         if (wifi_connect(s_ssid, s_pass)) {
-            // WiFi connected — start NTP time synchronisation.
             time_sync_start_sntp();
 
             notify_prov_status(PROV_WIFI_OK);
@@ -308,13 +309,13 @@ static void prov_connect_task(void *param) {
             notify_prov_status(PROV_WIFI_FAIL);
         }
     } else {
-        // BLE-only provisioning — just save the user binding + nickname.
         save_provisioning(false);
         notify_prov_status(PROV_BLE_ONLY_OK);
         ESP_LOGI(TAG, "BLE-only provisioning complete (user=%s, nick=%s)",
                  s_user_id, s_nickname);
     }
 
+    s_prov_in_progress = false;
     vTaskDelete(NULL);
 }
 
@@ -373,10 +374,22 @@ static int on_user_bind(uint16_t conn, uint16_t attr,
     ESP_LOGI(TAG, "User binding: uid=\"%s\", wifi=%s",
              s_user_id, s_wifi_requested ? "yes" : "no");
 
-    // Kick off provisioning on a separate task (WiFi connect blocks).
+    portENTER_CRITICAL(&s_prov_mux);
+    if (s_prov_in_progress) {
+        portEXIT_CRITICAL(&s_prov_mux);
+        ESP_LOGW(TAG, "Provisioning already in progress — rejecting");
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    s_prov_in_progress = true;
+    portEXIT_CRITICAL(&s_prov_mux);
+
     bool with_wifi = s_wifi_requested && s_ssid[0] != '\0';
-    xTaskCreate(prov_connect_task, "prov", 4096,
-                (void *)(uintptr_t)with_wifi, 5, NULL);
+    if (xTaskCreate(prov_connect_task, "prov", 4096,
+                    (void *)(uintptr_t)with_wifi, 5, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create provisioning task");
+        s_prov_in_progress = false;
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
 
     return 0;
 }
@@ -587,8 +600,20 @@ void wifi_prov_start_wifi(void) {
 
     ESP_LOGI(TAG, "Reconnecting WiFi: SSID=\"%s\", user=\"%s\"", s_ssid, s_user_id);
 
-    xTaskCreate(prov_connect_task, "wifi_rc", 4096,
-                (void *)(uintptr_t)true, 3, NULL);
+    portENTER_CRITICAL(&s_prov_mux);
+    if (s_prov_in_progress) {
+        portEXIT_CRITICAL(&s_prov_mux);
+        ESP_LOGW(TAG, "Provisioning already in progress — skipping reconnect");
+        return;
+    }
+    s_prov_in_progress = true;
+    portEXIT_CRITICAL(&s_prov_mux);
+
+    if (xTaskCreate(prov_connect_task, "wifi_rc", 4096,
+                    (void *)(uintptr_t)true, 3, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create WiFi reconnect task");
+        s_prov_in_progress = false;
+    }
 }
 
 void wifi_prov_reset(void) {
@@ -611,6 +636,7 @@ void wifi_prov_reset(void) {
     s_prov_status = PROV_IDLE;
     s_wifi_requested = false;
     s_auth_received = false;
+    s_prov_in_progress = false;
 
     ESP_LOGI(TAG, "Provisioning data erased (including BLE bonds)");
 }

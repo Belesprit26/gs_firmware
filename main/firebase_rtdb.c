@@ -224,7 +224,10 @@ void firebase_rtdb_push_boot(void)
     time_t now;
     time(&now);
 
-    build_url("meta/boot", token);
+    char path[64];
+    snprintf(path, sizeof(path), "meta/%s/boot",
+             firebase_auth_get_device_id());
+    build_url(path, token);
 
     char body[32];
     snprintf(body, sizeof(body), "%ld", (long)now);
@@ -296,6 +299,7 @@ void firebase_rtdb_push_event(uint8_t type, uint8_t temp)
 
 static char  sse_evt_type[32];
 static char  sse_evt_data[SSE_LINE_MAX];
+static int   sse_data_pos;
 static char  sse_line[SSE_LINE_MAX];
 static int   sse_line_pos;
 
@@ -472,12 +476,21 @@ static void sse_handle_line(const char *line)
     } else if (strncmp(line, "data:", 5) == 0) {
         const char *v = line + 5;
         while (*v == ' ') v++;
-        strncpy(sse_evt_data, v, sizeof(sse_evt_data) - 1);
-        sse_evt_data[sizeof(sse_evt_data) - 1] = '\0';
+        int vlen = strlen(v);
+        if (sse_data_pos > 0 && sse_data_pos < SSE_LINE_MAX - 1)
+            sse_evt_data[sse_data_pos++] = '\n';
+        int space = SSE_LINE_MAX - 1 - sse_data_pos;
+        int copy  = vlen < space ? vlen : space;
+        if (copy > 0) {
+            memcpy(sse_evt_data + sse_data_pos, v, copy);
+            sse_data_pos += copy;
+        }
+        sse_evt_data[sse_data_pos] = '\0';
     } else if (line[0] == '\0') {
-        if (sse_evt_type[0] && sse_evt_data[0])
+        if (sse_evt_type[0] && sse_data_pos > 0)
             process_sse_event();
         sse_evt_type[0] = '\0';
+        sse_data_pos = 0;
         sse_evt_data[0] = '\0';
     }
 }
@@ -587,6 +600,7 @@ void firebase_task(void *param)
         ESP_LOGI(TAG, "SSE connected — listening for settings");
         sse_line_pos = 0;
         sse_evt_type[0] = '\0';
+        sse_data_pos = 0;
         sse_evt_data[0] = '\0';
 
         TickType_t last_push  = xTaskGetTickCount();
