@@ -24,6 +24,11 @@ void nvs_store_load(device_state_t *state) {
     nvs_get_u8(h, "temp_min", &state->temp_min);
     nvs_get_u8(h, "temp_max", &state->temp_max);
 
+    if (state->temp_min < TEMP_MIN_FLOOR) state->temp_min = TEMP_MIN_FLOOR;
+    if (state->temp_min > TEMP_MIN_CEIL)  state->temp_min = TEMP_MIN_CEIL;
+    if (state->temp_max < TEMP_MAX_FLOOR) state->temp_max = TEMP_MAX_FLOOR;
+    if (state->temp_max > TEMP_MAX_CEIL)  state->temp_max = TEMP_MAX_CEIL;
+
     // Auto-reheat setting.
     val = 0;
     if (nvs_get_u8(h, "auto_rh", &val) == ESP_OK) {
@@ -73,6 +78,11 @@ void nvs_store_save_relay(bool on) {
 }
 
 void nvs_store_save_temp_limits(uint8_t min, uint8_t max) {
+    if (min < TEMP_MIN_FLOOR) min = TEMP_MIN_FLOOR;
+    if (min > TEMP_MIN_CEIL)  min = TEMP_MIN_CEIL;
+    if (max < TEMP_MAX_FLOOR) max = TEMP_MAX_FLOOR;
+    if (max > TEMP_MAX_CEIL)  max = TEMP_MAX_CEIL;
+
     nvs_handle_t h;
     if (!open_write(&h)) return;
     nvs_set_u8(h, "temp_min", min);

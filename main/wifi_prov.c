@@ -222,8 +222,9 @@ static bool wifi_connect(const char *ssid, const char *pass) {
         pdTRUE, pdFALSE,
         pdMS_TO_TICKS(15000));
 
-    vEventGroupDelete(s_prov_wifi_events);
+    EventGroupHandle_t tmp = s_prov_wifi_events;
     s_prov_wifi_events = NULL;
+    vEventGroupDelete(tmp);
 
     if (bits & PROV_CONNECTED_BIT) {
         ESP_LOGI(TAG, "WiFi connected");

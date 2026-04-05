@@ -48,6 +48,16 @@ void device_state_init(void);
 /// Call after loading NVS so user edits to preset times are ignored.
 void device_state_enforce_presets(void);
 
+// ── Temperature limit bounds ─────────────────────────────────────
+//
+// Enforced at every entry point (BLE, Firebase, NVS load).
+// The ranges guarantee min < max without an explicit check.
+
+#define TEMP_MIN_FLOOR   5
+#define TEMP_MIN_CEIL   50
+#define TEMP_MAX_FLOOR  51
+#define TEMP_MAX_CEIL   65
+
 // ── Thread-safe accessors ────────────────────────────────────────
 
 float   device_state_get_temperature(void);

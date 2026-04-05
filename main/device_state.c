@@ -102,6 +102,11 @@ void device_state_get_temp_limits(uint8_t *out_min, uint8_t *out_max) {
 }
 
 void device_state_set_temp_limits(uint8_t min, uint8_t max) {
+    if (min < TEMP_MIN_FLOOR) min = TEMP_MIN_FLOOR;
+    if (min > TEMP_MIN_CEIL)  min = TEMP_MIN_CEIL;
+    if (max < TEMP_MAX_FLOOR) max = TEMP_MAX_FLOOR;
+    if (max > TEMP_MAX_CEIL)  max = TEMP_MAX_CEIL;
+
     device_state_lock();
     s_state.temp_min = min;
     s_state.temp_max = max;
