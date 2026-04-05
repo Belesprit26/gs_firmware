@@ -15,12 +15,14 @@
 static const char *TAG = "sched";
 
 void scheduler_task(void *param) {
-    const TickType_t interval = pdMS_TO_TICKS(60000);   // 60 s
+    const TickType_t interval = pdMS_TO_TICKS(30000);   // 30 s
+
+    int last_fired_hh = -1;
+    int last_fired_mm = -1;
 
     for (;;) {
         vTaskDelay(interval);
 
-        // Only act when we have a trustworthy clock.
         if (!time_sync_is_valid()) continue;
 
         gs_timer_t timers[MAX_TIMERS];
@@ -33,11 +35,11 @@ void scheduler_task(void *param) {
         int hh = t.tm_hour;
         int mm = t.tm_min;
 
+        if (hh == last_fired_hh && mm == last_fired_mm) continue;
+
         for (int i = 0; i < MAX_TIMERS; i++) {
             if (!timers[i].enabled) continue;
 
-            // ON-only: turn the geyser on at the scheduled time.
-            // temp_max (thermostat) is responsible for turning it off.
             if (hh == timers[i].hour && mm == timers[i].minute) {
                 if (!device_state_get_relay()) {
                     ESP_LOGI(TAG, "Timer %d → ON (%02d:%02d)", i, hh, mm);
@@ -47,6 +49,9 @@ void scheduler_task(void *param) {
                     gatt_server_notify_state(true);
                     firebase_rtdb_request_settings_push();
                     firebase_rtdb_request_live_push();
+
+                    last_fired_hh = hh;
+                    last_fired_mm = mm;
                 }
             }
         }

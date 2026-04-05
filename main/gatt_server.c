@@ -308,23 +308,25 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
                 .flags      = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
                 .val_handle = &h_temp,
             },
-            {   // 0x03 — Geyser state
+            {   // 0x03 — Geyser state (encrypted: controls relay)
                 .uuid       = &uuid_state.u,
                 .access_cb  = on_state_access,
-                .flags      = BLE_GATT_CHR_F_READ
-                            | BLE_GATT_CHR_F_WRITE
+                .flags      = BLE_GATT_CHR_F_READ_ENC
+                            | BLE_GATT_CHR_F_WRITE_ENC
                             | BLE_GATT_CHR_F_NOTIFY,
                 .val_handle = &h_state,
             },
-            {   // 0x04 — Temperature limits + auto-reheat
+            {   // 0x04 — Temperature limits + auto-reheat (encrypted)
                 .uuid       = &uuid_limits.u,
                 .access_cb  = on_limits_access,
-                .flags      = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
+                .flags      = BLE_GATT_CHR_F_READ_ENC
+                            | BLE_GATT_CHR_F_WRITE_ENC,
             },
-            {   // 0x05 — Timer configuration
+            {   // 0x05 — Timer configuration (encrypted)
                 .uuid       = &uuid_timers.u,
                 .access_cb  = on_timers_access,
-                .flags      = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
+                .flags      = BLE_GATT_CHR_F_READ_ENC
+                            | BLE_GATT_CHR_F_WRITE_ENC,
             },
             {   // 0x06 — Device info
                 .uuid       = &uuid_info.u,
@@ -336,10 +338,10 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
                 .access_cb  = on_telem_access,
                 .flags      = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
             },
-            {   // 0x08 — Time sync (phone → ESP)
+            {   // 0x08 — Time sync (phone → ESP, encrypted)
                 .uuid       = &uuid_tsync.u,
                 .access_cb  = on_time_sync,
-                .flags      = BLE_GATT_CHR_F_WRITE,
+                .flags      = BLE_GATT_CHR_F_WRITE_ENC,
             },
             {   // 0x09 — Device Events (buffered + real-time notify)
                 .uuid       = &uuid_events.u,
@@ -352,10 +354,10 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
                 .access_cb  = on_tbuf_access,
                 .flags      = BLE_GATT_CHR_F_READ,
             },
-            {   // 0x0B — Buffer Acknowledge (clear both buffers)
+            {   // 0x0B — Buffer Acknowledge (clear both buffers, encrypted)
                 .uuid       = &uuid_ack.u,
                 .access_cb  = on_ack_access,
-                .flags      = BLE_GATT_CHR_F_WRITE,
+                .flags      = BLE_GATT_CHR_F_WRITE_ENC,
             },
             { 0 }, // sentinel
         },

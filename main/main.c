@@ -94,10 +94,12 @@ void app_main(void) {
     // 10. Physical button — configure GPIO (non-fatal if no button wired).
     button_init(PIN_BUTTON);
 
-    // 11. Firebase — init the async request flags, then start the
-    //     sync task if WiFi creds + auth credentials exist.
+    // 11. Firebase — init auth (always, so the mutex exists for
+    //     set_credentials during BLE provisioning), then start the
+    //     sync task if WiFi creds + valid auth exist.
     firebase_rtdb_init();
-    if (wifi_prov_has_wifi() && firebase_auth_init()) {
+    firebase_auth_init();
+    if (wifi_prov_has_wifi() && firebase_auth_is_ready()) {
         ESP_LOGI(TAG, "Firebase auth ready — starting sync task");
         xTaskCreate(firebase_task, "firebase", FIREBASE_STACK, NULL, 2, NULL);
     } else {

@@ -6,6 +6,7 @@
 #include "host/ble_hs.h"
 #include "host/ble_gap.h"
 #include "host/util/util.h"
+#include "store/config/ble_store_config.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 
@@ -36,6 +37,8 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg) {
         if (event->connect.status == 0) {
             s_conn_handle = event->connect.conn_handle;
             ESP_LOGI(TAG, "Client connected (handle=%d)", s_conn_handle);
+
+            ble_gap_security_initiate(s_conn_handle);
         } else {
             ESP_LOGW(TAG, "Connection failed, status=%d", event->connect.status);
             s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
@@ -59,6 +62,25 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg) {
                  event->subscribe.attr_handle,
                  event->subscribe.cur_notify);
         break;
+
+    case BLE_GAP_EVENT_ENC_CHANGE:
+        if (event->enc_change.status == 0) {
+            ESP_LOGI(TAG, "Encryption established (handle=%d)",
+                     event->enc_change.conn_handle);
+        } else {
+            ESP_LOGW(TAG, "Encryption failed (status=%d), disconnecting",
+                     event->enc_change.status);
+            ble_gap_terminate(event->enc_change.conn_handle,
+                              BLE_ERR_AUTH_FAIL);
+        }
+        break;
+
+    case BLE_GAP_EVENT_REPEAT_PAIRING: {
+        struct ble_gap_conn_desc desc;
+        ble_gap_conn_find(event->repeat_pairing.conn_handle, &desc);
+        ble_store_util_delete_peer(&desc.peer_id_addr);
+        return BLE_GAP_REPEAT_PAIRING_RETRY;
+    }
 
     default:
         break;
@@ -139,6 +161,16 @@ void ble_init(void) {
     // Host configuration.
     ble_hs_cfg.reset_cb = on_reset;
     ble_hs_cfg.sync_cb  = on_sync;
+
+    // Security Manager — Just Works pairing (no display/keyboard).
+    ble_hs_cfg.sm_io_cap       = BLE_SM_IO_CAP_NO_IO;
+    ble_hs_cfg.sm_bonding      = 1;
+    ble_hs_cfg.sm_mitm         = 0;
+    ble_hs_cfg.sm_sc           = 1;
+    ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+    ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+
+    ble_store_config_init();
 
     // Mandatory GAP / GATT services.
     ble_svc_gap_init();

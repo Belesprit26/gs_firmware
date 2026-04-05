@@ -13,6 +13,7 @@
 #include "os/os_mbuf.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+#include "freertos/timers.h"
 
 #include "ble_init.h"
 #include "time_sync.h"
@@ -63,6 +64,17 @@ static EventGroupHandle_t s_prov_wifi_events;
 static int s_retry_count = 0;
 #define MAX_RETRIES 5
 
+// Exponential backoff for reconnection after quick retries exhaust
+static TimerHandle_t s_backoff_timer  = NULL;
+static uint32_t      s_backoff_sec    = 30;
+#define BACKOFF_INITIAL_SEC   30
+#define BACKOFF_MAX_SEC       1800   // 30 minutes
+
+static void backoff_timer_cb(TimerHandle_t timer) {
+    ESP_LOGI("prov", "Backoff retry (next in %lus)", (unsigned long)s_backoff_sec);
+    esp_wifi_connect();
+}
+
 // ── UUID definitions ─────────────────────────────────────────────
 //
 // Provisioning service: 47530010-7652-4543-b201-c4b801a6c700
@@ -84,8 +96,10 @@ static const ble_uuid128_t uuid_auth_data    = GS_UUID128_INIT(0x15);
 static void build_adv_name(void) {
     if (s_nickname[0] != '\0') {
         snprintf(s_adv_name, ADV_NAME_MAX, "GeyserSwitch-%s", s_nickname);
-    } else {
+    } else if (wifi_prov_is_provisioned()) {
         strncpy(s_adv_name, "GeyserSwitch", ADV_NAME_MAX - 1);
+    } else {
+        strncpy(s_adv_name, "GeyserSwitch-Setup", ADV_NAME_MAX - 1);
     }
 }
 
@@ -109,18 +123,36 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
                 ESP_LOGI(TAG, "WiFi retry %d/%d", s_retry_count, MAX_RETRIES);
                 esp_wifi_connect();
             } else {
-                // Signal provisioning-time waiter (if any)
                 if (s_prov_wifi_events)
                     xEventGroupSetBits(s_prov_wifi_events, PROV_FAIL_BIT);
-                // Keep retrying in background every 30 s
+
+                // Start exponential backoff: 30s → 60s → 120s → 300s → 1800s
+                if (!s_backoff_timer) {
+                    s_backoff_timer = xTimerCreate(
+                        "wifi_bo", pdMS_TO_TICKS(s_backoff_sec * 1000),
+                        pdFALSE, NULL, backoff_timer_cb);
+                }
+                if (s_backoff_timer) {
+                    xTimerChangePeriod(s_backoff_timer,
+                        pdMS_TO_TICKS(s_backoff_sec * 1000), 0);
+                    xTimerStart(s_backoff_timer, 0);
+                    ESP_LOGW(TAG, "WiFi retries exhausted — backoff %lus",
+                             (unsigned long)s_backoff_sec);
+                    if (s_backoff_sec < BACKOFF_MAX_SEC) {
+                        s_backoff_sec *= 2;
+                        if (s_backoff_sec > BACKOFF_MAX_SEC)
+                            s_backoff_sec = BACKOFF_MAX_SEC;
+                    }
+                }
                 s_retry_count = 0;
-                ESP_LOGW(TAG, "WiFi retries exhausted — will retry later");
             }
         }
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)data;
         ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&event->ip_info.ip));
         s_retry_count = 0;
+        s_backoff_sec = BACKOFF_INITIAL_SEC;
+        if (s_backoff_timer) xTimerStop(s_backoff_timer, 0);
         s_wifi_connected = true;
         if (s_wifi_event_group)
             xEventGroupSetBits(s_wifi_event_group, WIFI_EVT_CONNECTED);
@@ -232,9 +264,12 @@ static void save_provisioning(bool with_wifi) {
         }
     }
 
-    ESP_LOGI(TAG, "Provisioning saved to NVS (wifi=%s, auth=%s)",
+    build_adv_name();
+
+    ESP_LOGI(TAG, "Provisioning saved to NVS (wifi=%s, auth=%s, name=%s)",
              with_wifi ? "yes" : "no",
-             s_auth_received ? "yes" : "no");
+             s_auth_received ? "yes" : "no",
+             s_adv_name);
 }
 
 // ── Notify helper ────────────────────────────────────────────────
@@ -389,7 +424,7 @@ static int on_auth_data(uint16_t conn, uint16_t attr,
 }
 
 /// Device nickname — Read, Write.
-/// Format: UTF-8, max 6 chars.
+/// Format: UTF-8, max PROV_NICKNAME_MAX (16) chars.
 /// Stored in NVS, used for advertising name: "GeyserSwitch-{nickname}".
 static int on_dev_nickname(uint16_t conn, uint16_t attr,
                            struct ble_gatt_access_ctxt *ctxt, void *arg) {
@@ -424,15 +459,16 @@ static const struct ble_gatt_svc_def prov_svcs[] = {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
         .uuid = &prov_svc_uuid.u,
         .characteristics = (struct ble_gatt_chr_def[]) {
-            {   // 0x11 — WiFi credentials (read returns SSID only)
+            {   // 0x11 — WiFi credentials (encrypted: contains password)
                 .uuid       = &uuid_wifi_creds.u,
                 .access_cb  = on_wifi_creds,
-                .flags      = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
+                .flags      = BLE_GATT_CHR_F_READ_ENC
+                            | BLE_GATT_CHR_F_WRITE_ENC,
             },
-            {   // 0x12 — User binding (triggers provisioning)
+            {   // 0x12 — User binding (encrypted: triggers provisioning)
                 .uuid       = &uuid_user_bind.u,
                 .access_cb  = on_user_bind,
-                .flags      = BLE_GATT_CHR_F_WRITE,
+                .flags      = BLE_GATT_CHR_F_WRITE_ENC,
             },
             {   // 0x13 — Provisioning status
                 .uuid       = &uuid_prov_status.u,
@@ -440,15 +476,16 @@ static const struct ble_gatt_svc_def prov_svcs[] = {
                 .flags      = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
                 .val_handle = &h_prov_status,
             },
-            {   // 0x14 — Device nickname
+            {   // 0x14 — Device nickname (encrypted)
                 .uuid       = &uuid_dev_nickname.u,
                 .access_cb  = on_dev_nickname,
-                .flags      = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
+                .flags      = BLE_GATT_CHR_F_READ_ENC
+                            | BLE_GATT_CHR_F_WRITE_ENC,
             },
-            {   // 0x15 — Firebase auth data (refresh token + device ID)
+            {   // 0x15 — Firebase auth data (encrypted: contains tokens)
                 .uuid       = &uuid_auth_data.u,
                 .access_cb  = on_auth_data,
-                .flags      = BLE_GATT_CHR_F_WRITE,
+                .flags      = BLE_GATT_CHR_F_WRITE_ENC,
             },
             { 0 }, // sentinel
         },
@@ -561,6 +598,8 @@ void wifi_prov_reset(void) {
     nvs_commit(h);
     nvs_close(h);
 
+    ble_store_clear();
+
     memset(s_ssid, 0, sizeof(s_ssid));
     memset(s_pass, 0, sizeof(s_pass));
     memset(s_user_id, 0, sizeof(s_user_id));
@@ -572,5 +611,5 @@ void wifi_prov_reset(void) {
     s_wifi_requested = false;
     s_auth_received = false;
 
-    ESP_LOGI(TAG, "Provisioning data erased");
+    ESP_LOGI(TAG, "Provisioning data erased (including BLE bonds)");
 }

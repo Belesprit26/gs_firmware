@@ -9,8 +9,12 @@
 #include "esp_crt_bundle.h"
 #include "nvs.h"
 #include "cJSON.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 static const char *TAG = "fb_auth";
+
+static SemaphoreHandle_t s_mutex;
 
 #define NVS_NS_PROV     "gs_prov"
 #define KEY_REFRESH_TK  "refresh_tk"
@@ -129,6 +133,13 @@ static bool do_refresh(void)
 
 bool firebase_auth_init(void)
 {
+    if (!s_mutex) {
+        s_mutex = xSemaphoreCreateMutex();
+        assert(s_mutex);
+    }
+
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+
     memset(s_refresh,   0, sizeof(s_refresh));
     memset(s_id_token,  0, sizeof(s_id_token));
     memset(s_device_id, 0, sizeof(s_device_id));
@@ -137,13 +148,17 @@ bool firebase_auth_init(void)
     s_ready  = false;
 
     nvs_handle_t h;
-    if (nvs_open(NVS_NS_PROV, NVS_READONLY, &h) != ESP_OK) return false;
+    if (nvs_open(NVS_NS_PROV, NVS_READONLY, &h) != ESP_OK) {
+        xSemaphoreGive(s_mutex);
+        return false;
+    }
 
     size_t len;
 
     len = sizeof(s_refresh);
     if (nvs_get_str(h, KEY_REFRESH_TK, s_refresh, &len) != ESP_OK) {
         nvs_close(h);
+        xSemaphoreGive(s_mutex);
         return false;
     }
 
@@ -158,12 +173,16 @@ bool firebase_auth_init(void)
     s_ready = (s_refresh[0] != '\0' && s_user_id[0] != '\0');
     ESP_LOGI(TAG, "Init: ready=%d  device=\"%s\"  user=\"%.8s...\"",
              s_ready, s_device_id, s_user_id);
+
+    xSemaphoreGive(s_mutex);
     return s_ready;
 }
 
 void firebase_auth_set_credentials(const char *refresh_token,
                                    const char *device_id)
 {
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+
     strncpy(s_refresh,   refresh_token, sizeof(s_refresh)   - 1);
     strncpy(s_device_id, device_id,     sizeof(s_device_id) - 1);
 
@@ -172,9 +191,6 @@ void firebase_auth_set_credentials(const char *refresh_token,
         nvs_set_str(h, KEY_REFRESH_TK, s_refresh);
         nvs_set_str(h, KEY_DEVICE_ID,  s_device_id);
 
-        // Load user_id if not yet populated — save_provisioning writes
-        // it to the same NVS namespace before calling this function,
-        // but firebase_auth_init may have bailed early at boot.
         if (s_user_id[0] == '\0') {
             size_t len = sizeof(s_user_id);
             nvs_get_str(h, KEY_USER_ID, s_user_id, &len);
@@ -187,21 +203,41 @@ void firebase_auth_set_credentials(const char *refresh_token,
     s_ready = (s_refresh[0] != '\0' && s_user_id[0] != '\0');
     ESP_LOGI(TAG, "Credentials stored  device=\"%s\"  ready=%d",
              s_device_id, s_ready);
+
+    xSemaphoreGive(s_mutex);
 }
 
 const char *firebase_auth_get_id_token(void)
 {
     if (!s_ready) return NULL;
 
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+
     time_t now;
     time(&now);
 
     if (s_id_token[0] == '\0' || now >= s_expiry) {
-        if (!do_refresh()) return NULL;
+        if (!do_refresh()) {
+            xSemaphoreGive(s_mutex);
+            return NULL;
+        }
     }
+
+    xSemaphoreGive(s_mutex);
     return s_id_token;
 }
 
-const char *firebase_auth_get_device_id(void) { return s_device_id; }
-const char *firebase_auth_get_user_id(void)   { return s_user_id;   }
-bool        firebase_auth_is_ready(void)      { return s_ready;     }
+const char *firebase_auth_get_device_id(void)
+{
+    return s_device_id;
+}
+
+const char *firebase_auth_get_user_id(void)
+{
+    return s_user_id;
+}
+
+bool firebase_auth_is_ready(void)
+{
+    return s_ready;
+}

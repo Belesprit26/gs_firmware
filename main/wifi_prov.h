@@ -54,6 +54,8 @@ const char *wifi_prov_get_device_name(void);
 /// Call once from app_main after NVS is ready.
 void wifi_prov_load_nickname(void);
 
-/// Erase all provisioning data (WiFi creds, user binding, nickname).
-/// The device will advertise as "GeyserSwitch-Setup" on next boot.
+/// Erase provisioning data only (WiFi, auth, nickname).
+/// Device config (relay, limits, timers) is preserved.
+/// Not currently called — reserved for future re-provisioning flow
+/// (e.g. GATT-triggered re-pair without full factory reset).
 void wifi_prov_reset(void);

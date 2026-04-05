@@ -10,11 +10,9 @@ void time_sync_init(void);
 /// Start SNTP time synchronisation.
 /// Call when WiFi connects and has Internet access.
 /// Safe to call multiple times — only starts once.
+/// The SNTP client handles WiFi outages gracefully (retries on
+/// its own poll interval), so there is no corresponding stop call.
 void time_sync_start_sntp(void);
-
-/// Stop SNTP synchronisation.
-/// Call when WiFi disconnects.  The RTC continues to run.
-void time_sync_stop_sntp(void);
 
 /// Set the system clock from a BLE phone timestamp.
 /// @param unix_time  Seconds since Unix epoch (UTC).

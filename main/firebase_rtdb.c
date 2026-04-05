@@ -11,6 +11,7 @@
 #include "esp_crt_bundle.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 #include "cJSON.h"
 
 #include "device_state.h"
@@ -37,17 +38,25 @@ static const char *TAG = "fb_rtdb";
 
 // ── Async request flags ──────────────────────────────────────────
 
-static volatile bool    s_pending_live     = false;
-static volatile bool    s_pending_settings = false;
-static volatile bool    s_pending_event    = false;
-static volatile uint8_t s_event_type       = 0;
-static volatile uint8_t s_event_temp       = 0;
+static volatile bool s_pending_live     = false;
+static volatile bool s_pending_settings = false;
+
+#define EVENT_QUEUE_DEPTH 8
+
+typedef struct {
+    uint8_t type;
+    uint8_t temp;
+} event_item_t;
+
+static QueueHandle_t s_event_queue;
 
 void firebase_rtdb_init(void)
 {
     s_pending_live     = false;
     s_pending_settings = false;
-    s_pending_event    = false;
+    if (!s_event_queue) {
+        s_event_queue = xQueueCreate(EVENT_QUEUE_DEPTH, sizeof(event_item_t));
+    }
 }
 
 void firebase_rtdb_request_live_push(void)
@@ -62,9 +71,11 @@ void firebase_rtdb_request_settings_push(void)
 
 void firebase_rtdb_request_event_push(uint8_t type, uint8_t temp)
 {
-    s_event_type = type;
-    s_event_temp = temp;
-    s_pending_event = true;
+    event_item_t item = { .type = type, .temp = temp };
+    if (xQueueSend(s_event_queue, &item, 0) != pdTRUE) {
+        ESP_LOGW("fb_rtdb", "Event queue full — dropped type=%u temp=%u",
+                 type, temp);
+    }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -224,21 +235,6 @@ void firebase_rtdb_push_boot(void)
         ESP_LOGW(TAG, "Boot timestamp push failed");
 }
 
-void firebase_rtdb_sync_relay(bool on)
-{
-    const char *token = firebase_auth_get_id_token();
-    if (!token) return;
-
-    char path[64];
-    snprintf(path, sizeof(path), "set/%s", firebase_auth_get_device_id());
-    build_url(path, token);
-
-    char body[32];
-    snprintf(body, sizeof(body), "{\"on\":%s}", on ? "true" : "false");
-
-    http_patch(s_url, body);
-}
-
 void firebase_rtdb_push_settings(void)
 {
     const char *token = firebase_auth_get_id_token();
@@ -323,23 +319,25 @@ static void apply_timer_mask(int mask, int custom_minutes)
     nvs_store_save_timers(timers);
 }
 
-static void apply_full_settings(cJSON *data)
+static void apply_full_settings(cJSON *data, bool is_put)
 {
     if (!cJSON_IsObject(data)) return;
 
     cJSON *j;
     bool relay_changed = false;
 
-    j = cJSON_GetObjectItem(data, "on");
-    if (cJSON_IsBool(j)) {
-        bool want = cJSON_IsTrue(j);
-        if (want != device_state_get_relay()) {
-            ESP_LOGI(TAG, "Remote toggle → %s", want ? "ON" : "OFF");
-            device_state_set_relay(want);
-            relay_set(want);
-            nvs_store_save_relay(want);
-            gatt_server_notify_state(want);
-            relay_changed = true;
+    if (is_put) {
+        j = cJSON_GetObjectItem(data, "on");
+        if (cJSON_IsBool(j)) {
+            bool want = cJSON_IsTrue(j);
+            if (want != device_state_get_relay()) {
+                ESP_LOGI(TAG, "Remote toggle → %s", want ? "ON" : "OFF");
+                device_state_set_relay(want);
+                relay_set(want);
+                nvs_store_save_relay(want);
+                gatt_server_notify_state(want);
+                relay_changed = true;
+            }
         }
     }
 
@@ -454,8 +452,9 @@ static void process_sse_event(void)
 
     if (cJSON_IsString(jpath) && jdata) {
         const char *p = jpath->valuestring;
+        bool is_put = (strcmp(sse_evt_type, "put") == 0);
         if (strcmp(p, "/") == 0)
-            apply_full_settings(jdata);
+            apply_full_settings(jdata, is_put);
         else
             apply_partial(p, jdata);
     }
@@ -511,9 +510,10 @@ static void process_pending(void)
         firebase_rtdb_push_live(device_state_get_temperature(),
                                 device_state_get_relay());
     }
-    if (s_pending_event) {
-        s_pending_event = false;
-        firebase_rtdb_push_event(s_event_type, s_event_temp);
+
+    event_item_t evt;
+    while (xQueueReceive(s_event_queue, &evt, 0) == pdTRUE) {
+        firebase_rtdb_push_event(evt.type, evt.temp);
     }
 }
 
@@ -638,6 +638,13 @@ void firebase_task(void *param)
                 relay_on_accum_s = 0;
                 last_stats = now;
             }
+        }
+
+        if (relay_on_accum_s > 0) {
+            firebase_rtdb_push_stats(relay_on_accum_s);
+            ESP_LOGI(TAG, "Flushed %ds accumulated stats before reconnect",
+                     relay_on_accum_s);
+            relay_on_accum_s = 0;
         }
 
         esp_http_client_close(sse);

@@ -60,16 +60,16 @@ void time_sync_start_sntp(void) {
     ESP_LOGI(TAG, "SNTP started (pool.ntp.org)");
 }
 
-void time_sync_stop_sntp(void) {
-    if (!s_sntp_running) return;
-
-    esp_sntp_stop();
-    s_sntp_running = false;
-    ESP_LOGI(TAG, "SNTP stopped — RTC continues");
-}
+#define TS_MIN  1704067200U   // 2024-01-01 00:00:00 UTC
+#define TS_MAX  2240611199U   // 2040-12-31 23:59:59 UTC
 
 void time_sync_set_from_ble(uint32_t unix_time) {
-    // If NTP synced recently, the RTC is reliable — ignore BLE time.
+    if (unix_time < TS_MIN || unix_time > TS_MAX) {
+        ESP_LOGW(TAG, "BLE time %lu rejected (outside 2024–2040)",
+                 (unsigned long)unix_time);
+        return;
+    }
+
     if (s_last_ntp_sync > 0) {
         time_t now;
         time(&now);
