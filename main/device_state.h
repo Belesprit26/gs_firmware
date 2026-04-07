@@ -31,14 +31,16 @@ typedef struct {
 ///
 /// All modules read from and write to this via the accessors below,
 /// which are protected by a mutex.  The non-volatile fields (everything
-/// except temperature) are persisted to NVS on every change.
+/// except temperature and sensor_ok) are persisted to NVS on every change.
 typedef struct {
-    float    temperature;          // latest sensor reading (°C)
+    float    temperature;          // latest sensor reading (°C), -1 = sensor offline
     bool     relay_on;             // relay GPIO state
     uint8_t  temp_min;             // min allowed temp (°C)
     uint8_t  temp_max;             // max allowed temp (°C)
     bool     auto_reheat;          // auto-ON when temp <= temp_min
     gs_timer_t timers[MAX_TIMERS]; // [0..3] = presets, [4] = custom
+    bool     sensor_ok;            // false when DS18B20 is unresponsive
+    uint16_t max_on_minutes;       // 0 = disabled, else relay forced OFF after N minutes
 } device_state_t;
 
 /// Initialise the state mutex.  Call once before any other accessor.
@@ -71,6 +73,12 @@ void    device_state_set_temp_limits(uint8_t min, uint8_t max);
 
 bool    device_state_get_auto_reheat(void);
 void    device_state_set_auto_reheat(bool enabled);
+
+bool    device_state_get_sensor_ok(void);
+void    device_state_set_sensor_ok(bool ok);
+
+uint16_t device_state_get_max_on_minutes(void);
+void     device_state_set_max_on_minutes(uint16_t minutes);
 
 /// Copy all MAX_TIMERS timers into *out*.
 void    device_state_get_timers(gs_timer_t *out);

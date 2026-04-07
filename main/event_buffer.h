@@ -8,7 +8,10 @@
 #define EVT_MAX_TEMP_OFF    0x01   // temp >= max → auto-OFF
 #define EVT_MIN_TEMP_ON     0x02   // temp <= min, auto-reheat → auto-ON
 #define EVT_MIN_TEMP_ALERT  0x03   // temp <= min, no auto-reheat → alert only
-#define EVT_TYPE_COUNT      3
+#define EVT_SENSOR_FAIL     0x04   // temperature sensor offline
+#define EVT_SENSOR_RECOVER  0x05   // temperature sensor back online
+#define EVT_MAX_ON_TIMEOUT  0x06   // relay forced OFF after max-on limit
+#define EVT_TYPE_COUNT      6
 
 // ── Buffer sizes ─────────────────────────────────────────────────
 

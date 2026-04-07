@@ -13,6 +13,7 @@
 #include "time_sync.h"
 #include "event_buffer.h"
 #include "firebase_rtdb.h"
+#include "firebase_auth.h"
 
 static const char *TAG = "gatt";
 
@@ -38,6 +39,8 @@ static const ble_uuid128_t uuid_tsync   = GS_UUID128_INIT(0x08);
 static const ble_uuid128_t uuid_events  = GS_UUID128_INIT(0x09);
 static const ble_uuid128_t uuid_tbuf    = GS_UUID128_INIT(0x0A);
 static const ble_uuid128_t uuid_ack     = GS_UUID128_INIT(0x0B);
+static const ble_uuid128_t uuid_devid  = GS_UUID128_INIT(0x0C);
+static const ble_uuid128_t uuid_maxon  = GS_UUID128_INIT(0x0D);
 
 // ── Value handles (filled by NimBLE during registration) ─────────
 
@@ -295,6 +298,53 @@ static int on_ack_access(uint16_t conn, uint16_t attr,
     return 0;
 }
 
+/// Max-on timer — Read, Write (encrypted).
+/// Format: uint16 LE — minutes (0 = disabled).
+static int on_maxon_access(uint16_t conn, uint16_t attr,
+                           struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        uint16_t val = device_state_get_max_on_minutes();
+        uint8_t buf[2] = { (uint8_t)val, (uint8_t)(val >> 8) };
+        os_mbuf_append(ctxt->om, buf, sizeof(buf));
+        return 0;
+    }
+
+    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        if (OS_MBUF_PKTLEN(ctxt->om) != 2)
+            return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+
+        uint8_t buf[2];
+        os_mbuf_copydata(ctxt->om, 0, sizeof(buf), buf);
+        uint16_t minutes = (uint16_t)buf[0] | ((uint16_t)buf[1] << 8);
+
+        device_state_set_max_on_minutes(minutes);
+        nvs_store_save_max_on_minutes(minutes);
+        firebase_rtdb_request_settings_push();
+
+        ESP_LOGI(TAG, "Max-on timer → %u min (%s)",
+                 minutes, minutes == 0 ? "disabled" : "enabled");
+        return 0;
+    }
+
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
+/// Stored device ID — Read only, unencrypted.
+/// Format: UTF-8 string (e.g. "a3f9b21c").
+/// Returns the RTDB device ID stored in NVS during provisioning.
+/// Unencrypted so it can be read before pairing (iOS re-pair scenario).
+static int on_devid_access(uint16_t conn, uint16_t attr,
+                           struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR)
+        return BLE_ATT_ERR_UNLIKELY;
+
+    const char *id = firebase_auth_get_device_id();
+    if (id && id[0] != '\0') {
+        os_mbuf_append(ctxt->om, id, strlen(id));
+    }
+    return 0;
+}
+
 // ── GATT service table ───────────────────────────────────────────
 
 static const struct ble_gatt_svc_def gatt_svcs[] = {
@@ -358,6 +408,17 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
                 .uuid       = &uuid_ack.u,
                 .access_cb  = on_ack_access,
                 .flags      = BLE_GATT_CHR_F_WRITE_ENC,
+            },
+            {   // 0x0C — Stored Device ID (unencrypted, for iOS re-pair)
+                .uuid       = &uuid_devid.u,
+                .access_cb  = on_devid_access,
+                .flags      = BLE_GATT_CHR_F_READ,
+            },
+            {   // 0x0D — Max-on safety timer (encrypted)
+                .uuid       = &uuid_maxon.u,
+                .access_cb  = on_maxon_access,
+                .flags      = BLE_GATT_CHR_F_READ_ENC
+                            | BLE_GATT_CHR_F_WRITE_ENC,
             },
             { 0 }, // sentinel
         },

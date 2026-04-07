@@ -12,11 +12,13 @@ const uint8_t PRESET_TIMER_MINUTES[PRESET_TIMER_COUNT] = { 0,  0,  0,  0 };
 // ── Singleton state ──────────────────────────────────────────────
 
 static device_state_t s_state = {
-    .temperature  = 0.0f,
-    .relay_on     = false,
-    .temp_min     = 30,
-    .temp_max     = 60,
-    .auto_reheat  = false,
+    .temperature    = 0.0f,
+    .relay_on       = false,
+    .temp_min       = 30,
+    .temp_max       = 60,
+    .auto_reheat    = false,
+    .sensor_ok      = true,
+    .max_on_minutes = 240,
 };
 
 static SemaphoreHandle_t s_mutex;
@@ -125,6 +127,36 @@ bool device_state_get_auto_reheat(void) {
 void device_state_set_auto_reheat(bool enabled) {
     device_state_lock();
     s_state.auto_reheat = enabled;
+    device_state_unlock();
+}
+
+// ── Sensor OK ────────────────────────────────────────────────────
+
+bool device_state_get_sensor_ok(void) {
+    device_state_lock();
+    bool v = s_state.sensor_ok;
+    device_state_unlock();
+    return v;
+}
+
+void device_state_set_sensor_ok(bool ok) {
+    device_state_lock();
+    s_state.sensor_ok = ok;
+    device_state_unlock();
+}
+
+// ── Max-on minutes ───────────────────────────────────────────────
+
+uint16_t device_state_get_max_on_minutes(void) {
+    device_state_lock();
+    uint16_t v = s_state.max_on_minutes;
+    device_state_unlock();
+    return v;
+}
+
+void device_state_set_max_on_minutes(uint16_t minutes) {
+    device_state_lock();
+    s_state.max_on_minutes = minutes;
     device_state_unlock();
 }
 

@@ -262,12 +262,14 @@ void firebase_rtdb_push_settings(void)
                       timers[PRESET_TIMER_COUNT].minute
                     : 0;
 
+    uint16_t maxon = device_state_get_max_on_minutes();
+
     char body[BODY_MAX];
     snprintf(body, sizeof(body),
              "{\"on\":%s,\"max\":%u,\"min\":%u,\"ar\":%s,"
-             "\"tmask\":%d,\"tcust\":%d}",
+             "\"tmask\":%d,\"tcust\":%d,\"maxon\":%u}",
              on ? "true" : "false", mx, mn,
-             ar ? "true" : "false", tmask, tcust);
+             ar ? "true" : "false", tmask, tcust, maxon);
 
     if (http_patch(s_url, body))
         ESP_LOGI(TAG, "Settings pushed to RTDB");
@@ -375,6 +377,14 @@ static void apply_full_settings(cJSON *data, bool is_put)
         apply_timer_mask(mask, cust);
     }
 
+    j = cJSON_GetObjectItem(data, "maxon");
+    if (cJSON_IsNumber(j)) {
+        uint16_t maxon = (uint16_t)j->valueint;
+        ESP_LOGI(TAG, "Remote max-on → %u min", maxon);
+        device_state_set_max_on_minutes(maxon);
+        nvs_store_save_max_on_minutes(maxon);
+    }
+
     if (relay_changed) {
         firebase_rtdb_push_live(device_state_get_temperature(),
                                 device_state_get_relay());
@@ -436,6 +446,11 @@ static void apply_partial(const char *path, cJSON *data)
         }
         device_state_set_timers(timers);
         nvs_store_save_timers(timers);
+    } else if (strcmp(path, "/maxon") == 0 && cJSON_IsNumber(data)) {
+        uint16_t maxon = (uint16_t)data->valueint;
+        ESP_LOGI(TAG, "Remote max-on → %u min", maxon);
+        device_state_set_max_on_minutes(maxon);
+        nvs_store_save_max_on_minutes(maxon);
     }
 }
 

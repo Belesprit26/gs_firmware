@@ -47,11 +47,16 @@ void nvs_store_load(device_state_t *state) {
         }
     }
 
+    uint16_t maxon = 240;
+    if (nvs_get_u16(h, "max_on", &maxon) == ESP_OK) {
+        state->max_on_minutes = maxon;
+    }
+
     nvs_close(h);
     ESP_LOGI(TAG, "Config loaded (relay=%d, limits=[%d,%d], "
-                  "auto_reheat=%d, timers loaded)",
+                  "auto_reheat=%d, max_on=%u min, timers loaded)",
              state->relay_on, state->temp_min, state->temp_max,
-             state->auto_reheat);
+             state->auto_reheat, state->max_on_minutes);
 }
 
 // ── Save helpers ─────────────────────────────────────────────────
@@ -94,6 +99,13 @@ void nvs_store_save_auto_reheat(bool enabled) {
     nvs_handle_t h;
     if (!open_write(&h)) return;
     nvs_set_u8(h, "auto_rh", enabled ? 1 : 0);
+    commit_and_close(h);
+}
+
+void nvs_store_save_max_on_minutes(uint16_t minutes) {
+    nvs_handle_t h;
+    if (!open_write(&h)) return;
+    nvs_set_u16(h, "max_on", minutes);
     commit_and_close(h);
 }
 

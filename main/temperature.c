@@ -68,6 +68,15 @@ static bool try_fire_event(uint8_t type, uint8_t temp_int) {
     return true;
 }
 
+// ── Sensor failure flag ───────────────────────────────────────────
+
+static bool s_sensor_fail_notified = false;
+
+// ── Max-on safety timer ──────────────────────────────────────────
+
+static int  s_relay_on_seconds = 0;
+static bool s_was_relay_on     = false;
+
 // ── Telemetry buffering ──────────────────────────────────────────
 
 /// Buffer a telemetry snapshot every 15 × 10 s = 2.5 minutes.
@@ -193,6 +202,13 @@ void temperature_task(void *param) {
             }
             s_consec_fails = 0;
 
+            if (s_sensor_fail_notified) {
+                ESP_LOGI(TAG, "Sensor back online — clearing sentinel");
+                device_state_set_sensor_ok(true);
+                s_sensor_fail_notified = false;
+                try_fire_event(EVT_SENSOR_RECOVER, (uint8_t)raw_temp);
+            }
+
             // ── EMA smoothing ────────────────────────────────────
             if (!s_ema_initialised) {
                 s_smoothed_temp  = raw_temp;
@@ -266,7 +282,57 @@ void temperature_task(void *param) {
                              SENSOR_RETRY_AFTER * 10);
                 }
             }
+
+            if (!s_sensor_fail_notified &&
+                s_consec_fails >= SENSOR_RETRY_AFTER) {
+                ESP_LOGW(TAG, "Sensor failure confirmed — pushing sentinel");
+                s_sensor_fail_notified = true;
+                device_state_set_sensor_ok(false);
+                device_state_set_temperature(-1.0f);
+                gatt_server_notify_temperature(-1.0f);
+                firebase_rtdb_request_live_push();
+                try_fire_event(EVT_SENSOR_FAIL, 0);
+            }
         }
+
+        // ── Max-on safety timer (sensor-offline only) ──────────────
+        // When the sensor is working, the thermostat enforces max temp
+        // and turns the relay off naturally.  This timer is purely a
+        // safety net for when the sensor is dead and the thermostat
+        // has no data to act on.
+        {
+            bool relay_now = device_state_get_relay();
+            bool sensor_dead = !device_state_get_sensor_ok();
+
+            if (relay_now && sensor_dead) {
+                uint16_t max_on = device_state_get_max_on_minutes();
+                if (!s_was_relay_on) {
+                    s_relay_on_seconds = 0;
+                }
+                s_relay_on_seconds += 10;
+
+                if (max_on > 0 &&
+                    s_relay_on_seconds >= (int)max_on * 60) {
+                    ESP_LOGW(TAG, "Max-on safety limit (%u min, "
+                             "sensor offline) — forcing relay OFF",
+                             max_on);
+                    device_state_set_relay(false);
+                    relay_set(false);
+                    nvs_store_save_relay(false);
+                    gatt_server_notify_state(false);
+                    firebase_rtdb_request_settings_push();
+                    firebase_rtdb_request_live_push();
+
+                    try_fire_event(EVT_MAX_ON_TIMEOUT, 0);
+                    s_relay_on_seconds = 0;
+                    relay_now = false;
+                }
+            } else {
+                s_relay_on_seconds = 0;
+            }
+            s_was_relay_on = relay_now;
+        }
+
         vTaskDelay(interval);
     }
 }
