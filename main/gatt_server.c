@@ -2,6 +2,7 @@
 
 #include <string.h>
 #include "esp_log.h"
+#include "esp_app_desc.h"
 #include "host/ble_hs.h"
 #include "host/ble_gatt.h"
 #include "os/os_mbuf.h"
@@ -16,8 +17,6 @@
 #include "firebase_auth.h"
 
 static const char *TAG = "gatt";
-
-#define FIRMWARE_VERSION "0.3.0"
 
 // ── UUID helpers ─────────────────────────────────────────────────
 //
@@ -192,13 +191,16 @@ static int on_timers_access(uint16_t conn, uint16_t attr,
 }
 
 /// Device info — Read only.
-/// Format: UTF-8 firmware version string.
+/// Format: UTF-8 firmware version string, taken from the running
+/// image's embedded app description (driven by version.txt / PROJECT_VER)
+/// so the reported version always matches the actual running build.
 static int on_info_access(uint16_t conn, uint16_t attr,
                           struct ble_gatt_access_ctxt *ctxt, void *arg) {
     if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR)
         return BLE_ATT_ERR_UNLIKELY;
 
-    os_mbuf_append(ctxt->om, FIRMWARE_VERSION, strlen(FIRMWARE_VERSION));
+    const char *ver = esp_app_get_description()->version;
+    os_mbuf_append(ctxt->om, ver, strlen(ver));
     return 0;
 }
 
