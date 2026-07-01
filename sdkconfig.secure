@@ -1,0 +1,48 @@
+# ─────────────────────────────────────────────────────────────────
+#  Secure Boot v2 + Flash Encryption + NVS encryption   (OPT-IN)
+# ─────────────────────────────────────────────────────────────────
+#
+#  This fragment is NOT part of the default build. It is applied only
+#  when you explicitly ask for it:
+#
+#    idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.secure" \
+#           build flash monitor
+#
+#  ⚠️  Flashing a build made with this fragment BURNS eFUSES ON FIRST
+#      BOOT and is IRREVERSIBLE on that chip. Read SECURE_BOOT.md fully
+#      first, and only ever bring this up on sacrificial dev boards
+#      until the whole flow is proven. Do NOT enable this until OTA
+#      (Part A) is validated — once flash encryption is on, OTA is the
+#      only way to update a unit.
+#
+#  The values below use DEVELOPMENT flash-encryption mode, which keeps
+#  the board reflashable. RELEASE mode (permanent) is for production
+#  units only — see the switch below and the runbook.
+
+# ── Secure Boot v2 (RSA-3072) ────────────────────────────────────
+CONFIG_SECURE_BOOT=y
+CONFIG_SECURE_BOOT_V2_ENABLED=y
+CONFIG_SECURE_BOOT_V2_RSA_ENABLED=y
+# Path is relative to the project root. Generate with
+# tools/gen_secure_boot_key.sh; keep it OFFLINE and out of git.
+CONFIG_SECURE_BOOT_SIGNING_KEY="secure_boot_signing_key.pem"
+
+# ── Flash Encryption — DEVELOPMENT mode (reflashable) ────────────
+CONFIG_SECURE_FLASH_ENC_ENABLED=y
+CONFIG_SECURE_FLASH_ENCRYPTION_MODE_DEVELOPMENT=y
+# PRODUCTION units only — comment the DEVELOPMENT line above and set:
+# CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y
+
+# ── NVS encryption (protects the refresh token + WiFi PSK at rest) ─
+# Uses the XTS keys in the nvs_key partition (see partitions.csv),
+# which are themselves protected by flash encryption. nvs_flash_init()
+# picks this up automatically — no app code change.
+CONFIG_NVS_ENCRYPTION=y
+
+# ── Partition table offset (see SECURE_BOOT.md) ──────────────────
+# A signed Secure Boot v2 bootloader is larger and can overflow the
+# default 0x8000 partition-table offset on the C6. If the build fails
+# with a bootloader-size / overlap error, uncomment the next line and
+# shift the nvs / phy_init / otadata offsets in partitions.csv by
+# +0x8000 (ota_0/ota_1/nvs_key stay put — they are already past 0x10000).
+# CONFIG_PARTITION_TABLE_OFFSET=0x10000
