@@ -33,7 +33,7 @@ static const ble_uuid128_t uuid_state   = GS_UUID128_INIT(0x03);
 static const ble_uuid128_t uuid_limits  = GS_UUID128_INIT(0x04);
 static const ble_uuid128_t uuid_timers  = GS_UUID128_INIT(0x05);
 static const ble_uuid128_t uuid_info    = GS_UUID128_INIT(0x06);
-static const ble_uuid128_t uuid_telem   = GS_UUID128_INIT(0x07);
+// 0x07 (legacy telemetry bulk) retired — buffered telemetry is 0x0A.
 static const ble_uuid128_t uuid_tsync   = GS_UUID128_INIT(0x08);
 static const ble_uuid128_t uuid_events  = GS_UUID128_INIT(0x09);
 static const ble_uuid128_t uuid_tbuf    = GS_UUID128_INIT(0x0A);
@@ -201,16 +201,6 @@ static int on_info_access(uint16_t conn, uint16_t attr,
 
     const char *ver = esp_app_get_description()->version;
     os_mbuf_append(ctxt->om, ver, strlen(ver));
-    return 0;
-}
-
-/// Telemetry bulk — Read, Notify.  Stub for now (kept for compatibility).
-static int on_telem_access(uint16_t conn, uint16_t attr,
-                           struct ble_gatt_access_ctxt *ctxt, void *arg) {
-    if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR)
-        return BLE_ATT_ERR_UNLIKELY;
-
-    // No buffered telemetry via 0x07 — use 0x0A instead.
     return 0;
 }
 
@@ -384,11 +374,6 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
                 .uuid       = &uuid_info.u,
                 .access_cb  = on_info_access,
                 .flags      = BLE_GATT_CHR_F_READ,
-            },
-            {   // 0x07 — Telemetry bulk (legacy stub)
-                .uuid       = &uuid_telem.u,
-                .access_cb  = on_telem_access,
-                .flags      = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
             },
             {   // 0x08 — Time sync (phone → ESP, encrypted)
                 .uuid       = &uuid_tsync.u,

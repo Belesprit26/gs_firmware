@@ -1,3 +1,12 @@
+// ── STAGED, NOT IN THE BUILD ─────────────────────────────────────
+//
+// This module is deliberately excluded from main/CMakeLists.txt.
+// It targets the current-sensing hardware still under evaluation
+// (HARDWARE_ROADMAP.md → "Current sensor evaluation"): element/relay
+// failure detection via an SCT-013 CT clamp + SEN0211 module.
+// Add it to SRCS (and call current_sense_init from app_main) once the
+// CT hardware lands on the production BOM.
+
 #include "current_sense.h"
 
 #include <math.h>

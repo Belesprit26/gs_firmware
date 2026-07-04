@@ -55,7 +55,6 @@ static bool s_auth_received = false;
 static char s_adv_name[ADV_NAME_MAX] = {0};
 
 // WiFi connection state — persistent across reconnects
-static EventGroupHandle_t s_wifi_event_group;
 static bool s_wifi_connected = false;
 static bool s_wifi_inited    = false;
 
@@ -117,8 +116,6 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
             esp_wifi_connect();
         } else if (id == WIFI_EVENT_STA_DISCONNECTED) {
             s_wifi_connected = false;
-            if (s_wifi_event_group)
-                xEventGroupClearBits(s_wifi_event_group, WIFI_EVT_CONNECTED);
 
             if (s_retry_count < MAX_RETRIES) {
                 s_retry_count++;
@@ -156,8 +153,6 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
         s_backoff_sec = BACKOFF_INITIAL_SEC;
         if (s_backoff_timer) xTimerStop(s_backoff_timer, 0);
         s_wifi_connected = true;
-        if (s_wifi_event_group)
-            xEventGroupSetBits(s_wifi_event_group, WIFI_EVT_CONNECTED);
         if (s_prov_wifi_events)
             xEventGroupSetBits(s_prov_wifi_events, PROV_CONNECTED_BIT);
     }
@@ -168,8 +163,6 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
 static void wifi_stack_init(void) {
     if (s_wifi_inited) return;
     s_wifi_inited = true;
-
-    s_wifi_event_group = xEventGroupCreate();
 
     esp_netif_init();
     esp_event_loop_create_default();
@@ -203,8 +196,6 @@ static bool wifi_connect(const char *ssid, const char *pass) {
     // reconnect attempts from the event handler.
     esp_wifi_stop();
     s_wifi_connected = false;
-    if (s_wifi_event_group)
-        xEventGroupClearBits(s_wifi_event_group, WIFI_EVT_CONNECTED);
 
     s_prov_wifi_events = xEventGroupCreate();
 
@@ -575,14 +566,6 @@ void wifi_prov_gatt_init(void) {
     rc = ble_gatts_add_svcs(prov_svcs);
     assert(rc == 0);
     ESP_LOGI(TAG, "Provisioning GATT service registered");
-}
-
-bool wifi_prov_is_connected(void) {
-    return s_wifi_connected;
-}
-
-EventGroupHandle_t wifi_prov_event_group(void) {
-    return s_wifi_event_group;
 }
 
 void wifi_prov_start_wifi(void) {
