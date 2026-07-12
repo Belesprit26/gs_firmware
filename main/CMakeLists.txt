@@ -14,5 +14,7 @@ idf_component_register(
         "button.c"
         "firebase_auth.c"
         "firebase_rtdb.c"
+        "ota.c"
+        "owner_auth.c"
     INCLUDE_DIRS "."
 )

@@ -24,10 +24,9 @@ void nvs_store_load(device_state_t *state) {
     nvs_get_u8(h, "temp_min", &state->temp_min);
     nvs_get_u8(h, "temp_max", &state->temp_max);
 
-    if (state->temp_min < TEMP_MIN_FLOOR) state->temp_min = TEMP_MIN_FLOOR;
-    if (state->temp_min > TEMP_MIN_CEIL)  state->temp_min = TEMP_MIN_CEIL;
-    if (state->temp_max < TEMP_MAX_FLOOR) state->temp_max = TEMP_MAX_FLOOR;
-    if (state->temp_max > TEMP_MAX_CEIL)  state->temp_max = TEMP_MAX_CEIL;
+    // Re-clamp on load: NVS may hold values written by older firmware
+    // or a build without the deadband rule.
+    device_state_clamp_limits(&state->temp_min, &state->temp_max);
 
     // Auto-reheat setting.
     val = 0;
@@ -83,10 +82,7 @@ void nvs_store_save_relay(bool on) {
 }
 
 void nvs_store_save_temp_limits(uint8_t min, uint8_t max) {
-    if (min < TEMP_MIN_FLOOR) min = TEMP_MIN_FLOOR;
-    if (min > TEMP_MIN_CEIL)  min = TEMP_MIN_CEIL;
-    if (max < TEMP_MAX_FLOOR) max = TEMP_MAX_FLOOR;
-    if (max > TEMP_MAX_CEIL)  max = TEMP_MAX_CEIL;
+    device_state_clamp_limits(&min, &max);
 
     nvs_handle_t h;
     if (!open_write(&h)) return;

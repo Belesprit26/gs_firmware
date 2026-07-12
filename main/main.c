@@ -15,6 +15,7 @@
 #include "button.h"
 #include "firebase_auth.h"
 #include "firebase_rtdb.h"
+#include "ota.h"
 
 static const char *TAG = "main";
 
@@ -30,6 +31,7 @@ static const char *TAG = "main";
 #define SCHED_STACK     2048
 #define BUTTON_STACK    2048
 #define FIREBASE_STACK  12288
+#define OTA_STACK       12288
 
 void app_main(void) {
     ESP_LOGI(TAG, "GeyserSwitch firmware starting");
@@ -74,6 +76,10 @@ void app_main(void) {
     // 7. Load device nickname (before BLE, so advertising name is correct).
     wifi_prov_load_nickname();
 
+    // 7b. Owner-lock — load the BLE owner key so control/provisioning
+    //     writes are gated from the very first connection.
+    owner_auth_init();
+
     // 8. BLE — init stack, register GATT services, start advertising.
     //    Name is "GeyserSwitch-{nick}" if provisioned with nickname,
     //    "GeyserSwitch-Setup" if unprovisioned, "GeyserSwitch" otherwise.
@@ -111,6 +117,11 @@ void app_main(void) {
     xTaskCreate(temperature_task, "sensor",    SENSOR_STACK, NULL, 5, NULL);
     xTaskCreate(scheduler_task,   "scheduler", SCHED_STACK,  NULL, 3, NULL);
     xTaskCreate(button_task,      "button",    BUTTON_STACK, NULL, 4, NULL);
+
+    // 13. OTA — lowest priority.  Confirms the running image (cancels
+    //     rollback) and checks for updates; waits internally for WiFi +
+    //     Firebase auth, so it is safe to start regardless of prov state.
+    xTaskCreate(ota_task,         "ota",       OTA_STACK,    NULL, 1, NULL);
 
     ESP_LOGI(TAG, "All systems go");
 }

@@ -19,6 +19,7 @@
 #include "time_sync.h"
 #include "firebase_auth.h"
 #include "firebase_rtdb.h"
+#include "owner_auth.h"
 
 static const char *TAG = "prov";
 
@@ -55,7 +56,6 @@ static bool s_auth_received = false;
 static char s_adv_name[ADV_NAME_MAX] = {0};
 
 // WiFi connection state — persistent across reconnects
-static EventGroupHandle_t s_wifi_event_group;
 static bool s_wifi_connected = false;
 static bool s_wifi_inited    = false;
 
@@ -92,6 +92,7 @@ static const ble_uuid128_t uuid_user_bind    = GS_UUID128_INIT(0x12);
 static const ble_uuid128_t uuid_prov_status  = GS_UUID128_INIT(0x13);
 static const ble_uuid128_t uuid_dev_nickname = GS_UUID128_INIT(0x14);
 static const ble_uuid128_t uuid_auth_data    = GS_UUID128_INIT(0x15);
+static const ble_uuid128_t uuid_owner_key    = GS_UUID128_INIT(0x16);
 
 // ── Advertising name builder ─────────────────────────────────────
 
@@ -117,8 +118,6 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
             esp_wifi_connect();
         } else if (id == WIFI_EVENT_STA_DISCONNECTED) {
             s_wifi_connected = false;
-            if (s_wifi_event_group)
-                xEventGroupClearBits(s_wifi_event_group, WIFI_EVT_CONNECTED);
 
             if (s_retry_count < MAX_RETRIES) {
                 s_retry_count++;
@@ -156,8 +155,6 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
         s_backoff_sec = BACKOFF_INITIAL_SEC;
         if (s_backoff_timer) xTimerStop(s_backoff_timer, 0);
         s_wifi_connected = true;
-        if (s_wifi_event_group)
-            xEventGroupSetBits(s_wifi_event_group, WIFI_EVT_CONNECTED);
         if (s_prov_wifi_events)
             xEventGroupSetBits(s_prov_wifi_events, PROV_CONNECTED_BIT);
     }
@@ -168,8 +165,6 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
 static void wifi_stack_init(void) {
     if (s_wifi_inited) return;
     s_wifi_inited = true;
-
-    s_wifi_event_group = xEventGroupCreate();
 
     esp_netif_init();
     esp_event_loop_create_default();
@@ -203,8 +198,6 @@ static bool wifi_connect(const char *ssid, const char *pass) {
     // reconnect attempts from the event handler.
     esp_wifi_stop();
     s_wifi_connected = false;
-    if (s_wifi_event_group)
-        xEventGroupClearBits(s_wifi_event_group, WIFI_EVT_CONNECTED);
 
     s_prov_wifi_events = xEventGroupCreate();
 
@@ -322,8 +315,14 @@ static void prov_connect_task(void *param) {
 // ── GATT callbacks ───────────────────────────────────────────────
 
 /// WiFi credentials — Read (SSID only), Write (SSID\0password).
+/// Owner-gated in BOTH directions once provisioned: the write for
+/// obvious reasons, the read because the SSID leaks the home network
+/// name to any paired stranger.
 static int on_wifi_creds(uint16_t conn, uint16_t attr,
                          struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    if (!owner_auth_gate_ok())
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
         // Return stored SSID only (never expose the password).
         os_mbuf_append(ctxt->om, s_ssid, strlen(s_ssid));
@@ -359,10 +358,21 @@ static int on_wifi_creds(uint16_t conn, uint16_t attr,
 /// Writing this triggers the provisioning sequence.
 /// If WiFi creds were written first → full provisioning (WiFi + BLE).
 /// If no WiFi creds → BLE-only provisioning.
+///
+/// THE HIJACK FIX: on an unprovisioned device this is open (first
+/// owner claims it). Once provisioned, re-binding requires an
+/// owner-unlocked connection — a stranger cannot rebind the geyser to
+/// their account. Ownership transfer = physical factory reset
+/// (button, 10 s) back to setup mode.
 static int on_user_bind(uint16_t conn, uint16_t attr,
                         struct ble_gatt_access_ctxt *ctxt, void *arg) {
     if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR)
         return BLE_ATT_ERR_UNLIKELY;
+
+    if (!owner_auth_gate_ok()) {
+        ESP_LOGW(TAG, "Rebind rejected — connection not owner-unlocked");
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+    }
 
     uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
     if (len == 0 || len >= sizeof(s_user_id))
@@ -414,6 +424,9 @@ static int on_auth_data(uint16_t conn, uint16_t attr,
     if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR)
         return BLE_ATT_ERR_UNLIKELY;
 
+    if (!owner_auth_gate_ok())
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+
     uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
     if (len < 3 || len >= AUTH_REFRESH_MAX + AUTH_DEVICE_ID_MAX)
         return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
@@ -448,6 +461,9 @@ static int on_dev_nickname(uint16_t conn, uint16_t attr,
     }
 
     if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        if (!owner_auth_gate_ok())
+            return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+
         uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
         if (len == 0 || len > PROV_NICKNAME_MAX)
             return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
@@ -464,6 +480,33 @@ static int on_dev_nickname(uint16_t conn, uint16_t attr,
     }
 
     return BLE_ATT_ERR_UNLIKELY;
+}
+
+/// Owner key — Write only.
+/// Format: exactly 32 random bytes, generated by the app at
+/// provisioning and stored in the account's cloud scope so every
+/// phone signed into the household account can unlock via 0x0E.
+/// Open on an unprovisioned device (first provisioning sets it);
+/// once provisioned, rewriting (rotation) requires owner unlock.
+static int on_owner_key(uint16_t conn, uint16_t attr,
+                        struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR)
+        return BLE_ATT_ERR_UNLIKELY;
+
+    if (!owner_auth_gate_ok())
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+
+    uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
+    if (len != OWNER_KEY_LEN)
+        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+
+    uint8_t key[OWNER_KEY_LEN];
+    os_mbuf_copydata(ctxt->om, 0, len, key);
+
+    if (!owner_auth_set_key(key, len))
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+
+    return 0;
 }
 
 // ── GATT service table ───────────────────────────────────────────
@@ -499,6 +542,11 @@ static const struct ble_gatt_svc_def prov_svcs[] = {
             {   // 0x15 — Firebase auth data (encrypted: contains tokens)
                 .uuid       = &uuid_auth_data.u,
                 .access_cb  = on_auth_data,
+                .flags      = BLE_GATT_CHR_F_WRITE_ENC,
+            },
+            {   // 0x16 — Owner key (encrypted; write at provisioning/rotation)
+                .uuid       = &uuid_owner_key.u,
+                .access_cb  = on_owner_key,
                 .flags      = BLE_GATT_CHR_F_WRITE_ENC,
             },
             { 0 }, // sentinel
@@ -575,14 +623,6 @@ void wifi_prov_gatt_init(void) {
     rc = ble_gatts_add_svcs(prov_svcs);
     assert(rc == 0);
     ESP_LOGI(TAG, "Provisioning GATT service registered");
-}
-
-bool wifi_prov_is_connected(void) {
-    return s_wifi_connected;
-}
-
-EventGroupHandle_t wifi_prov_event_group(void) {
-    return s_wifi_event_group;
 }
 
 void wifi_prov_start_wifi(void) {

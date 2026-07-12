@@ -80,7 +80,7 @@ void firebase_rtdb_request_event_push(uint8_t type, uint8_t temp)
 
 // ── Helpers ──────────────────────────────────────────────────────
 // Single static URL buffer — safe because every HTTP call runs
-// sequentially on the firebase_task (8 KB stack).
+// sequentially on the firebase_task (FIREBASE_STACK, 12 KB).
 
 static char s_url[URL_BUF];
 

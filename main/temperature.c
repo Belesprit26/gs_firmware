@@ -295,27 +295,28 @@ void temperature_task(void *param) {
             }
         }
 
-        // ── Max-on safety timer (sensor-offline only) ──────────────
-        // When the sensor is working, the thermostat enforces max temp
-        // and turns the relay off naturally.  This timer is purely a
-        // safety net for when the sensor is dead and the thermostat
-        // has no data to act on.
+        // ── Max-on safety timer (absolute ceiling) ─────────────────
+        // Bounds continuous relay-ON time regardless of sensor health.
+        // Under normal operation the thermostat turns the relay off at
+        // max_t; this is the backstop for the cases the thermostat can
+        // NOT catch: a dead sensor, a sensor mis-placed/reading low, or
+        // a setpoint the element can never reach.  The accumulator is
+        // reset ONLY when the relay is actually OFF, so a sensor that
+        // intermittently drops out and recovers cannot defeat it.
         {
             bool relay_now = device_state_get_relay();
-            bool sensor_dead = !device_state_get_sensor_ok();
 
-            if (relay_now && sensor_dead) {
-                uint16_t max_on = device_state_get_max_on_minutes();
+            if (relay_now) {
                 if (!s_was_relay_on) {
                     s_relay_on_seconds = 0;
                 }
                 s_relay_on_seconds += 10;
 
+                uint16_t max_on = device_state_get_max_on_minutes();
                 if (max_on > 0 &&
                     s_relay_on_seconds >= (int)max_on * 60) {
-                    ESP_LOGW(TAG, "Max-on safety limit (%u min, "
-                             "sensor offline) — forcing relay OFF",
-                             max_on);
+                    ESP_LOGW(TAG, "Max-on safety limit (%u min) — "
+                             "forcing relay OFF", max_on);
                     device_state_set_relay(false);
                     relay_set(false);
                     nvs_store_save_relay(false);

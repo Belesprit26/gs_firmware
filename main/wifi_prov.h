@@ -2,14 +2,9 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/event_groups.h"
 
 /// Maximum user-chosen suffix length (e.g. "LivingRoom" in "GeyserSwitch-LivingRoom").
 #define PROV_NICKNAME_MAX 16
-
-/// Event bits for WiFi connection state.
-#define WIFI_EVT_CONNECTED BIT0
 
 /// Provisioning status codes — reported via BLE notification.
 typedef enum {
@@ -27,13 +22,6 @@ bool wifi_prov_is_provisioned(void);
 
 /// Returns true if WiFi credentials have been stored.
 bool wifi_prov_has_wifi(void);
-
-/// Returns true if WiFi STA is currently connected (has IP).
-bool wifi_prov_is_connected(void);
-
-/// Event group for WiFi state — wait on WIFI_EVT_CONNECTED to block
-/// until WiFi is available.
-EventGroupHandle_t wifi_prov_event_group(void);
 
 /// Register the provisioning GATT service.
 /// Call alongside gatt_server_init(), before nimble_port_freertos_init().

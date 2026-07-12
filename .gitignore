@@ -7,3 +7,7 @@ dependencies.lock
 .cursor/
 .cache/
 .DS_Store
+
+# Secure Boot v2 signing key — must NEVER be committed (see SECURE_BOOT.md).
+secure_boot_signing_key.pem
+*.pem

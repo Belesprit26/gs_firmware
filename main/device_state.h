@@ -52,13 +52,25 @@ void device_state_enforce_presets(void);
 
 // ── Temperature limit bounds ─────────────────────────────────────
 //
-// Enforced at every entry point (BLE, Firebase, NVS load).
-// The ranges guarantee min < max without an explicit check.
+// Enforced at every entry point (BLE, Firebase, NVS load) via
+// device_state_clamp_limits(), which applies both the ranges below
+// and a minimum hysteresis band (deadband) so min and max can never
+// sit close enough to cause relay chatter near the setpoint.
 
 #define TEMP_MIN_FLOOR   5
 #define TEMP_MIN_CEIL   50
 #define TEMP_MAX_FLOOR  51
 #define TEMP_MAX_CEIL   65
+
+/// Minimum gap (°C) enforced between temp_min and temp_max.  Prevents
+/// rapid ON/OFF relay cycling when auto-reheat is enabled and the two
+/// limits are set almost equal (e.g. min=50, max=51).
+#define TEMP_MIN_DEADBAND  5
+
+/// Clamp a (min, max) pair to the ranges above and enforce
+/// TEMP_MIN_DEADBAND between them.  Used by every write path so the
+/// live state and the persisted NVS values can never diverge.
+void device_state_clamp_limits(uint8_t *min, uint8_t *max);
 
 // ── Thread-safe accessors ────────────────────────────────────────
 

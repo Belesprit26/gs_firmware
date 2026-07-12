@@ -103,11 +103,30 @@ void device_state_get_temp_limits(uint8_t *out_min, uint8_t *out_max) {
     device_state_unlock();
 }
 
+void device_state_clamp_limits(uint8_t *min, uint8_t *max) {
+    uint8_t mn = *min, mx = *max;
+
+    if (mn < TEMP_MIN_FLOOR) mn = TEMP_MIN_FLOOR;
+    if (mn > TEMP_MIN_CEIL)  mn = TEMP_MIN_CEIL;
+    if (mx < TEMP_MAX_FLOOR) mx = TEMP_MAX_FLOOR;
+    if (mx > TEMP_MAX_CEIL)  mx = TEMP_MAX_CEIL;
+
+    // Enforce the minimum hysteresis band.  Prefer raising max; if max
+    // is already at its ceiling, lower min instead.
+    if (mx < mn + TEMP_MIN_DEADBAND) {
+        mx = mn + TEMP_MIN_DEADBAND;
+        if (mx > TEMP_MAX_CEIL) {
+            mx = TEMP_MAX_CEIL;
+            if (mn > mx - TEMP_MIN_DEADBAND) mn = mx - TEMP_MIN_DEADBAND;
+        }
+    }
+
+    *min = mn;
+    *max = mx;
+}
+
 void device_state_set_temp_limits(uint8_t min, uint8_t max) {
-    if (min < TEMP_MIN_FLOOR) min = TEMP_MIN_FLOOR;
-    if (min > TEMP_MIN_CEIL)  min = TEMP_MIN_CEIL;
-    if (max < TEMP_MAX_FLOOR) max = TEMP_MAX_FLOOR;
-    if (max > TEMP_MAX_CEIL)  max = TEMP_MAX_CEIL;
+    device_state_clamp_limits(&min, &max);
 
     device_state_lock();
     s_state.temp_min = min;
