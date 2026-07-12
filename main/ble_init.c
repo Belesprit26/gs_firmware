@@ -12,6 +12,7 @@
 
 #include "gatt_server.h"
 #include "wifi_prov.h"
+#include "owner_auth.h"
 
 static const char *TAG = "ble";
 
@@ -38,6 +39,9 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg) {
             s_conn_handle = event->connect.conn_handle;
             ESP_LOGI(TAG, "Client connected (handle=%d)", s_conn_handle);
 
+            // Fresh connection starts locked — owner must re-prove.
+            owner_auth_reset_session();
+
             ble_gap_security_initiate(s_conn_handle);
         } else {
             ESP_LOGW(TAG, "Connection failed, status=%d", event->connect.status);
@@ -50,6 +54,7 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg) {
         ESP_LOGI(TAG, "Client disconnected (reason=%d)",
                  event->disconnect.reason);
         s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+        owner_auth_reset_session();
         ble_start_advertising();
         break;
 

@@ -15,6 +15,7 @@
 #include "event_buffer.h"
 #include "firebase_rtdb.h"
 #include "firebase_auth.h"
+#include "owner_auth.h"
 
 static const char *TAG = "gatt";
 
@@ -40,6 +41,7 @@ static const ble_uuid128_t uuid_tbuf    = GS_UUID128_INIT(0x0A);
 static const ble_uuid128_t uuid_ack     = GS_UUID128_INIT(0x0B);
 static const ble_uuid128_t uuid_devid  = GS_UUID128_INIT(0x0C);
 static const ble_uuid128_t uuid_maxon  = GS_UUID128_INIT(0x0D);
+static const ble_uuid128_t uuid_oauth  = GS_UUID128_INIT(0x0E);
 
 // ── Value handles (filled by NimBLE during registration) ─────────
 
@@ -73,6 +75,9 @@ static int on_state_access(uint16_t conn, uint16_t attr,
     }
 
     if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        if (!owner_auth_gate_ok())
+            return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+
         uint8_t val;
         if (OS_MBUF_PKTLEN(ctxt->om) != 1)
             return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
@@ -108,6 +113,9 @@ static int on_limits_access(uint16_t conn, uint16_t attr,
     }
 
     if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        if (!owner_auth_gate_ok())
+            return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+
         uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
         if (len < 2 || len > 3)
             return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
@@ -155,6 +163,9 @@ static int on_timers_access(uint16_t conn, uint16_t attr,
     }
 
     if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        if (!owner_auth_gate_ok())
+            return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+
         uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
         if (len == 0 || len % 4 != 0)
             return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
@@ -210,6 +221,9 @@ static int on_time_sync(uint16_t conn, uint16_t attr,
                         struct ble_gatt_access_ctxt *ctxt, void *arg) {
     if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR)
         return BLE_ATT_ERR_UNLIKELY;
+
+    if (!owner_auth_gate_ok())
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
 
     if (OS_MBUF_PKTLEN(ctxt->om) != 4)
         return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
@@ -285,6 +299,9 @@ static int on_ack_access(uint16_t conn, uint16_t attr,
     if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR)
         return BLE_ATT_ERR_UNLIKELY;
 
+    if (!owner_auth_gate_ok())
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+
     event_buffer_clear();
     ESP_LOGI(TAG, "Buffer acknowledge — buffers cleared");
     return 0;
@@ -302,6 +319,9 @@ static int on_maxon_access(uint16_t conn, uint16_t attr,
     }
 
     if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        if (!owner_auth_gate_ok())
+            return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+
         if (OS_MBUF_PKTLEN(ctxt->om) != 2)
             return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
 
@@ -315,6 +335,36 @@ static int on_maxon_access(uint16_t conn, uint16_t attr,
 
         ESP_LOGI(TAG, "Max-on timer → %u min (%s)",
                  minutes, minutes == 0 ? "disabled" : "enabled");
+        return 0;
+    }
+
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
+/// Owner auth — Read (challenge), Write (response), encrypted.
+/// Read:  16-byte random nonce, regenerated on every read.
+/// Write: 32-byte HMAC-SHA256(ownerKey, nonce). A correct response
+/// marks this connection owner-unlocked until disconnect; a wrong one
+/// is rejected and consumes the nonce (re-read to retry).
+static int on_oauth_access(uint16_t conn, uint16_t attr,
+                           struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        uint8_t nonce[OWNER_NONCE_LEN];
+        owner_auth_get_nonce(nonce);
+        os_mbuf_append(ctxt->om, nonce, sizeof(nonce));
+        return 0;
+    }
+
+    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
+        if (len != OWNER_HMAC_LEN)
+            return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+
+        uint8_t resp[OWNER_HMAC_LEN];
+        os_mbuf_copydata(ctxt->om, 0, sizeof(resp), resp);
+
+        if (!owner_auth_try_unlock(resp, sizeof(resp)))
+            return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
         return 0;
     }
 
@@ -336,6 +386,21 @@ static int on_devid_access(uint16_t conn, uint16_t attr,
     }
     return 0;
 }
+
+// ── Owner-lock summary ───────────────────────────────────────────
+//
+// Writes that control the geyser or change provisioning require the
+// connection to be owner-unlocked once the device is provisioned
+// (owner_auth.c). Unlock = HMAC-SHA256(ownerKey, nonce) on 0x0E.
+//
+//   Gated writes:  0x03 relay, 0x04 limits, 0x05 timers, 0x08 time,
+//                  0x0B ack, 0x0D max-on, 0x11 wifi (+SSID read),
+//                  0x12 bind, 0x14 nickname, 0x15 auth, 0x16 key.
+//   Open (unauth): 0x02 temp, 0x03 read, 0x06 info, 0x09 events,
+//                  0x0A telem buffer, 0x0C device id, 0x13 status.
+//
+// The owner key is set once at provisioning (0x16). While the device
+// is unprovisioned everything is open so the first owner can claim it.
 
 // ── GATT service table ───────────────────────────────────────────
 
@@ -404,6 +469,12 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
             {   // 0x0D — Max-on safety timer (encrypted)
                 .uuid       = &uuid_maxon.u,
                 .access_cb  = on_maxon_access,
+                .flags      = BLE_GATT_CHR_F_READ_ENC
+                            | BLE_GATT_CHR_F_WRITE_ENC,
+            },
+            {   // 0x0E — Owner auth: nonce read / HMAC unlock (encrypted)
+                .uuid       = &uuid_oauth.u,
+                .access_cb  = on_oauth_access,
                 .flags      = BLE_GATT_CHR_F_READ_ENC
                             | BLE_GATT_CHR_F_WRITE_ENC,
             },

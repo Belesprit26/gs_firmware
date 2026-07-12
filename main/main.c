@@ -76,6 +76,10 @@ void app_main(void) {
     // 7. Load device nickname (before BLE, so advertising name is correct).
     wifi_prov_load_nickname();
 
+    // 7b. Owner-lock — load the BLE owner key so control/provisioning
+    //     writes are gated from the very first connection.
+    owner_auth_init();
+
     // 8. BLE — init stack, register GATT services, start advertising.
     //    Name is "GeyserSwitch-{nick}" if provisioned with nickname,
     //    "GeyserSwitch-Setup" if unprovisioned, "GeyserSwitch" otherwise.
