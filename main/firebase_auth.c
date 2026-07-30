@@ -207,6 +207,27 @@ void firebase_auth_set_credentials(const char *refresh_token,
     xSemaphoreGive(s_mutex);
 }
 
+void firebase_auth_set_device_id(const char *device_id)
+{
+    if (!device_id || device_id[0] == '\0') return;
+
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+
+    strncpy(s_device_id, device_id, sizeof(s_device_id) - 1);
+    s_device_id[sizeof(s_device_id) - 1] = '\0';
+
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS_PROV, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_str(h, KEY_DEVICE_ID, s_device_id);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+
+    ESP_LOGI(TAG, "Device ID stored: \"%s\"", s_device_id);
+
+    xSemaphoreGive(s_mutex);
+}
+
 const char *firebase_auth_get_id_token(void)
 {
     if (!s_ready) return NULL;

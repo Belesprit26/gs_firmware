@@ -12,6 +12,13 @@ bool firebase_auth_init(void);
 void firebase_auth_set_credentials(const char *refresh_token,
                                    const char *device_id);
 
+/// Store ONLY the RTDB device ID (persisted to NVS). Used by BLE-only
+/// provisioning, which carries no refresh token — without this the
+/// firmware never learns its RTDB identity and GATT 0x0C stays empty,
+/// so a second phone (iOS especially: CoreBluetooth identifiers are
+/// per-phone) derives a different device ID and finds no owner key.
+void firebase_auth_set_device_id(const char *device_id);
+
 /// Return a valid Firebase ID token for RTDB REST API calls.
 /// Transparently refreshes the token if it has expired.
 /// Returns NULL if no credentials are stored or refresh fails.

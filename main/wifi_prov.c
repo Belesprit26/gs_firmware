@@ -387,6 +387,19 @@ static int on_user_bind(uint16_t conn, uint16_t attr,
     memset(s_user_id, 0, sizeof(s_user_id));
     os_mbuf_copydata(ctxt->om, 0, len, s_user_id);
 
+    // Optional ADDITIVE suffix: "uid\0deviceId".  s_user_id is used as
+    // a C string everywhere, so the embedded NUL leaves the uid parse
+    // unchanged (old apps simply send no suffix; old firmware ignores
+    // it).  Persisting the ID here covers BLE-only provisioning, which
+    // has no auth-data write.
+    size_t uid_len = strnlen(s_user_id, sizeof(s_user_id));
+    if (uid_len + 1 < (size_t)len) {
+        const char *dev_id = s_user_id + uid_len + 1;
+        if (dev_id[0] != '\0') {
+            firebase_auth_set_device_id(dev_id);
+        }
+    }
+
     ESP_LOGI(TAG, "User binding: uid=\"%s\", wifi=%s",
              s_user_id, s_wifi_requested ? "yes" : "no");
 
