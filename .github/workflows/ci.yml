@@ -9,6 +9,12 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # Build from the committed managed_components/ + dependencies.lock
+      # instead of re-resolving from the component registry. Keeps CI
+      # byte-identical to local/release builds and immune to upstream
+      # manifest changes.
+      IDF_COMPONENT_OFFLINE_MODE: "1"
     steps:
       - uses: actions/checkout@v4
 

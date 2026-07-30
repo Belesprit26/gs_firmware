@@ -1,8 +1,10 @@
 build/
 sdkconfig
 sdkconfig.old
-managed_components/
-dependencies.lock
+# managed_components/ and dependencies.lock are deliberately COMMITTED:
+# vendoring the exact component sources makes every build (local, CI,
+# release) byte-identical and immune to upstream registry changes — the
+# DS18B20 driver is safety-critical, so it must not float.
 .vscode/
 .cursor/
 .cache/
