@@ -1,2 +1,6 @@
-dependencies:
-  espressif/ds18b20: "*"
+# The DS18B20 + OneWire drivers are vendored under components/ rather
+# than pulled from the component registry. They read the temperature the
+# thermostat and sensor-failure failsafe depend on, so their source must
+# be fixed at a reviewed version and identical in every build (local, CI,
+# release) — not re-resolved from an upstream that can change.
+dependencies: {}
