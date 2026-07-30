@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Clean-tree build: sdkconfig is regenerated from sdkconfig.defaults,
+      # exactly like a release build must be.
+      - name: Build (ESP-IDF v5.3, esp32c6)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.3
+          target: esp32c6
+
+      # Safety-flag gates. A stale local sdkconfig once shipped builds
+      # with OTA rollback silently disabled — these greps make that
+      # class of regression impossible to merge.
+      - name: Verify safety-critical config flags
+        run: |
+          H=build/config/sdkconfig.h
+          fail=0
+          grep -q "#define CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE 1" "$H" \
+            || { echo "MISSING: OTA rollback (anti-brick)"; fail=1; }
+          grep -q "#define CONFIG_ESP_TASK_WDT_PANIC 1" "$H" \
+            || { echo "MISSING: task watchdog panic (relay failsafe)"; fail=1; }
+          if grep -q "#define CONFIG_BT_NIMBLE_SM_LEGACY 1" "$H"; then
+            echo "PRESENT: legacy BLE pairing (must be SC-only)"; fail=1
+          fi
+          grep -q "#define CONFIG_ESP_TASK_WDT_TIMEOUT_S 60" "$H" \
+            || { echo "WRONG: watchdog timeout (must be 60s > 30s scheduler loop)"; fail=1; }
+          exit $fail
+
+      - name: Upload firmware binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: gs_firmware-${{ github.sha }}
+          path: |
+            build/gs_firmware.bin
+            build/bootloader/bootloader.bin
+            build/partition_table/partition-table.bin
+            build/ota_data_initial.bin

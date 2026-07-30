@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <time.h>
 #include "esp_log.h"
+#include "esp_system.h"
+#include "esp_app_desc.h"
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
 #include "freertos/FreeRTOS.h"
@@ -240,6 +242,27 @@ void firebase_rtdb_push_boot(void)
         ESP_LOGI(TAG, "Boot timestamp pushed");
     else
         ESP_LOGW(TAG, "Boot timestamp push failed");
+
+    // Field observability: reset reason + firmware version.  Without
+    // this, a crash-looping unit is invisible unless a user opens the
+    // app in BLE range.  Separate best-effort write on a NEW subpath so
+    // the boot push above keeps working even if the rules for /health
+    // aren't deployed yet (write is then just denied and logged).
+    snprintf(path, sizeof(path), "meta/%s/health",
+             firebase_auth_get_device_id());
+    build_url(path, token);
+
+    char health[96];
+    snprintf(health, sizeof(health),
+             "{\"rr\":%d,\"fw\":\"%s\",\"at\":%ld}",
+             (int)esp_reset_reason(),
+             esp_app_get_description()->version,
+             (long)now);
+
+    if (http_put(s_url, health))
+        ESP_LOGI(TAG, "Boot health pushed (rr=%d)", (int)esp_reset_reason());
+    else
+        ESP_LOGW(TAG, "Boot health push failed (rules not deployed yet?)");
 }
 
 void firebase_rtdb_push_settings(void)
