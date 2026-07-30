@@ -73,7 +73,7 @@ static bool try_fire_event(uint8_t type, uint8_t temp_int) {
 
 static bool s_sensor_fail_notified = false;
 
-// ── Max-on safety timer ──────────────────────────────────────────
+// ── Max continuous run timer ─────────────────────────────────────
 
 static int  s_relay_on_seconds = 0;
 static bool s_was_relay_on     = false;
@@ -183,9 +183,10 @@ esp_err_t temperature_read(float *out_temp_c) {
 void temperature_task(void *param) {
     const TickType_t interval = pdMS_TO_TICKS(10000);   // 10 s
 
-    // This task is the only one that ever turns the relay OFF (thermostat
-    // + max-on backstop).  If it hangs, the TWDT panics and the reboot
-    // lands with the relay GPIO low until state restore.
+    // Watchdog-subscribed so a hang here (e.g. a wedged OneWire read)
+    // reboots the unit rather than leaving it unresponsive to the app,
+    // the schedule and the cloud.  The reboot restores the previous
+    // relay state — the geyser regulates itself either way.
     ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
     for (;;) {
@@ -299,29 +300,24 @@ void temperature_task(void *param) {
                 firebase_rtdb_request_live_push();
                 try_fire_event(EVT_SENSOR_FAIL, 0);
 
-                // Fail safe: never keep heating blind.  The user can
-                // still turn the relay back ON manually (the app shows
-                // the sensor as offline); that run is then bounded by
-                // the sensor-fail max-on ceiling below.
-                if (device_state_get_relay()) {
-                    ESP_LOGW(TAG, "Sensor failed with relay ON — forcing OFF");
-                    device_state_set_relay(false);
-                    nvs_store_save_relay(false);
-                    gatt_server_notify_state(false);
-                    firebase_rtdb_request_settings_push();
-                    firebase_rtdb_request_live_push();
-                }
+                // The relay is deliberately LEFT AS-IS.  It switches the
+                // geyser at the mains, upstream of the geyser's own
+                // mechanical thermostat, which still regulates water
+                // temperature on its own.  A dead sensor costs us
+                // monitoring and smart scheduling, not safety — cutting
+                // power here would turn a sensor fault into a
+                // no-hot-water callout.  The user is notified instead.
             }
         }
 
-        // ── Max-on safety timer (absolute ceiling) ─────────────────
-        // Bounds continuous relay-ON time regardless of sensor health.
-        // Under normal operation the thermostat turns the relay off at
-        // max_t; this is the backstop for the cases the thermostat can
-        // NOT catch: a dead sensor, a sensor mis-placed/reading low, or
-        // a setpoint the element can never reach.  The accumulator is
-        // reset ONLY when the relay is actually OFF, so a sensor that
-        // intermittently drops out and recovers cannot defeat it.
+        // ── Max continuous run timer ───────────────────────────────
+        // An ENERGY / "left on too long" convenience: bounds how long
+        // the geyser stays powered in one stretch, entirely as the user
+        // configured it (0 = Off is a valid explicit choice).  This is
+        // NOT a safety cutoff — the geyser's own mechanical thermostat
+        // governs temperature and is untouched by this controller.  The
+        // accumulator resets only when the relay is actually OFF, so a
+        // flapping sensor cannot extend the window.
         {
             bool relay_now = device_state_get_relay();
 
@@ -332,17 +328,10 @@ void temperature_task(void *param) {
                 s_relay_on_seconds += 10;
 
                 uint16_t max_on = device_state_get_max_on_minutes();
-                // Heating blind must always be bounded: while the
-                // sensor is failed, override 0/"Off" and anything
-                // longer with the sensor-fail ceiling.
-                if (!device_state_get_sensor_ok() &&
-                    (max_on == 0 || max_on > SENSOR_FAIL_MAX_ON_MIN)) {
-                    max_on = SENSOR_FAIL_MAX_ON_MIN;
-                }
                 if (max_on > 0 &&
                     s_relay_on_seconds >= (int)max_on * 60) {
-                    ESP_LOGW(TAG, "Max-on safety limit (%u min) — "
-                             "forcing relay OFF", max_on);
+                    ESP_LOGI(TAG, "Max continuous run (%u min) reached — "
+                             "switching off", max_on);
                     device_state_set_relay(false);
                     nvs_store_save_relay(false);
                     gatt_server_notify_state(false);

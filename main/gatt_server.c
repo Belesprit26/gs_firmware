@@ -466,7 +466,7 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
                 .access_cb  = on_devid_access,
                 .flags      = BLE_GATT_CHR_F_READ,
             },
-            {   // 0x0D — Max-on safety timer (encrypted)
+            {   // 0x0D — Max continuous run timer (encrypted)
                 .uuid       = &uuid_maxon.u,
                 .access_cb  = on_maxon_access,
                 .flags      = BLE_GATT_CHR_F_READ_ENC

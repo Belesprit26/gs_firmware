@@ -52,6 +52,14 @@ void device_state_enforce_presets(void);
 
 // ── Temperature limit bounds ─────────────────────────────────────
 //
+// The user's smart setpoints, applied ON TOP OF the geyser's own
+// mechanical thermostat by gating mains power: they let the user run
+// cooler (and so cheaper) than the geyser's factory setting.  Cutting
+// power when the measured temperature exceeds max_t also adds a real
+// protective layer for the case the geyser's own thermostat sticks
+// closed — which is why TEMP_MAX_CEIL is capped below a typical
+// factory setpoint.
+//
 // Enforced at every entry point (BLE, Firebase, NVS load) via
 // device_state_clamp_limits(), which applies both the ranges below
 // and a minimum hysteresis band (deadband) so min and max can never
@@ -67,16 +75,16 @@ void device_state_enforce_presets(void);
 /// limits are set almost equal (e.g. min=50, max=51).
 #define TEMP_MIN_DEADBAND  5
 
-// ── Max-on safety timer bounds ───────────────────────────────────
+// ── Max continuous run bounds ────────────────────────────────────
+//
+// An energy / "left on too long" convenience, not a safety cutoff:
+// this controller switches the geyser at the mains and the geyser's
+// own mechanical thermostat still regulates temperature.
 
 /// Upper clamp for max_on_minutes (24 h) — mirrors the RTDB rules'
-/// 0..1440 range.  0 = disabled remains a legitimate explicit choice.
+/// 0..1440 range.  0 = disabled remains a legitimate explicit choice
+/// and is never overridden by firmware.
 #define MAX_ON_CEIL  1440
-
-/// While the temperature sensor is FAILED the configured max-on is
-/// overridden with this ceiling (even if the user chose 0/"Off"):
-/// heating blind must always be bounded.
-#define SENSOR_FAIL_MAX_ON_MIN  240
 
 /// Clamp a (min, max) pair to the ranges above and enforce
 /// TEMP_MIN_DEADBAND between them.  Used by every write path so the

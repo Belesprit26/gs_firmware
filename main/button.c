@@ -72,7 +72,8 @@ void button_task(void *param) {
                 ESP_LOGW(TAG, "=== FACTORY RESET (held %lu ms) ===",
                          (unsigned long)held_ms);
 
-                // Turn relay off before wiping — safety first.
+                // Switch the geyser off before wiping, so a factory
+                // reset leaves it in a known, predictable state.
                 relay_set(false);
 
                 // Erase all NVS (WiFi creds, UID, nickname, config).

@@ -66,24 +66,16 @@ void app_main(void) {
     time_sync_init();
 
     // 5. Relay — configure GPIO and restore last known position.
-    //    After an ABNORMAL reset (panic, watchdog, brownout) boot with
-    //    the relay OFF regardless of the persisted state: firmware that
-    //    just crashed must not blindly re-energize the element.  With a
-    //    healthy sensor, auto-reheat and the scheduler re-enable heating
-    //    through the normal checked paths.
+    //    The persisted state is ALWAYS restored, including after a
+    //    crash/watchdog reboot: the relay gates the geyser at the mains,
+    //    and the geyser's own thermostat regulates temperature, so
+    //    coming back powered is simply "an ordinary geyser".  Refusing
+    //    to restore would leave the customer without hot water until the
+    //    next schedule fires, for a fault they never noticed.
     relay_init(PIN_RELAY);
-    esp_reset_reason_t rr = esp_reset_reason();
-    bool abnormal_reset = (rr == ESP_RST_PANIC || rr == ESP_RST_INT_WDT ||
-                           rr == ESP_RST_TASK_WDT || rr == ESP_RST_WDT ||
-                           rr == ESP_RST_BROWNOUT);
-    if (abnormal_reset && device_state_get_relay()) {
-        ESP_LOGW(TAG, "Abnormal reset (reason=%d) — not restoring relay ON", rr);
-        device_state_set_relay(false);
-        nvs_store_save_relay(false);
-    } else {
-        relay_set(device_state_get_relay());
-    }
-    ESP_LOGI(TAG, "Relay restored → %s", device_state_get_relay() ? "ON" : "OFF");
+    relay_set(device_state_get_relay());
+    ESP_LOGI(TAG, "Relay restored → %s (reset reason=%d)",
+             device_state_get_relay() ? "ON" : "OFF", (int)esp_reset_reason());
 
     // 6. Temperature sensor — non-fatal if missing.
     if (temperature_init(PIN_DS18B20) != ESP_OK) {
