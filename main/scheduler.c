@@ -49,7 +49,6 @@ void scheduler_task(void *param) {
                 if (!device_state_get_relay()) {
                     ESP_LOGI(TAG, "Timer %d → ON (%02d:%02d)", i, hh, mm);
                     device_state_set_relay(true);
-                    relay_set(true);
                     nvs_store_save_relay(true);
                     gatt_server_notify_state(true);
                     firebase_rtdb_request_settings_push();

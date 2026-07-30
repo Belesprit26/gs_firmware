@@ -240,7 +240,6 @@ void temperature_task(void *param) {
                 ESP_LOGI(TAG, "Temp %.1f°C >= max %d°C → auto-OFF",
                          s_smoothed_temp, max_t);
                 device_state_set_relay(false);
-                relay_set(false);
                 nvs_store_save_relay(false);
                 gatt_server_notify_state(false);
                 firebase_rtdb_request_settings_push();
@@ -256,7 +255,6 @@ void temperature_task(void *param) {
                              "(auto-reheat) → auto-ON",
                              s_smoothed_temp, min_t);
                     device_state_set_relay(true);
-                    relay_set(true);
                     nvs_store_save_relay(true);
                     gatt_server_notify_state(true);
                     firebase_rtdb_request_settings_push();
@@ -300,6 +298,19 @@ void temperature_task(void *param) {
                 gatt_server_notify_temperature(-1.0f);
                 firebase_rtdb_request_live_push();
                 try_fire_event(EVT_SENSOR_FAIL, 0);
+
+                // Fail safe: never keep heating blind.  The user can
+                // still turn the relay back ON manually (the app shows
+                // the sensor as offline); that run is then bounded by
+                // the sensor-fail max-on ceiling below.
+                if (device_state_get_relay()) {
+                    ESP_LOGW(TAG, "Sensor failed with relay ON — forcing OFF");
+                    device_state_set_relay(false);
+                    nvs_store_save_relay(false);
+                    gatt_server_notify_state(false);
+                    firebase_rtdb_request_settings_push();
+                    firebase_rtdb_request_live_push();
+                }
             }
         }
 
@@ -321,12 +332,18 @@ void temperature_task(void *param) {
                 s_relay_on_seconds += 10;
 
                 uint16_t max_on = device_state_get_max_on_minutes();
+                // Heating blind must always be bounded: while the
+                // sensor is failed, override 0/"Off" and anything
+                // longer with the sensor-fail ceiling.
+                if (!device_state_get_sensor_ok() &&
+                    (max_on == 0 || max_on > SENSOR_FAIL_MAX_ON_MIN)) {
+                    max_on = SENSOR_FAIL_MAX_ON_MIN;
+                }
                 if (max_on > 0 &&
                     s_relay_on_seconds >= (int)max_on * 60) {
                     ESP_LOGW(TAG, "Max-on safety limit (%u min) — "
                              "forcing relay OFF", max_on);
                     device_state_set_relay(false);
-                    relay_set(false);
                     nvs_store_save_relay(false);
                     gatt_server_notify_state(false);
                     firebase_rtdb_request_settings_push();
@@ -341,6 +358,11 @@ void temperature_task(void *param) {
             }
             s_was_relay_on = relay_now;
         }
+
+        // Reassert the GPIO from state every cycle — self-heals any
+        // residual state/pin desync (belt-and-braces alongside the
+        // atomic drive inside device_state_set_relay()).
+        device_state_reassert_relay();
 
         vTaskDelay(interval);
     }

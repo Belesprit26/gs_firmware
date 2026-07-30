@@ -93,7 +93,6 @@ void button_task(void *param) {
                 // Short press → toggle relay.
                 bool on = !device_state_get_relay();
                 device_state_set_relay(on);
-                relay_set(on);
                 nvs_store_save_relay(on);
                 gatt_server_notify_state(on);
                 firebase_rtdb_request_settings_push();

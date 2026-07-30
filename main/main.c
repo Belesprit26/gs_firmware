@@ -1,4 +1,5 @@
 #include "esp_log.h"
+#include "esp_system.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -65,8 +66,23 @@ void app_main(void) {
     time_sync_init();
 
     // 5. Relay — configure GPIO and restore last known position.
+    //    After an ABNORMAL reset (panic, watchdog, brownout) boot with
+    //    the relay OFF regardless of the persisted state: firmware that
+    //    just crashed must not blindly re-energize the element.  With a
+    //    healthy sensor, auto-reheat and the scheduler re-enable heating
+    //    through the normal checked paths.
     relay_init(PIN_RELAY);
-    relay_set(device_state_get_relay());
+    esp_reset_reason_t rr = esp_reset_reason();
+    bool abnormal_reset = (rr == ESP_RST_PANIC || rr == ESP_RST_INT_WDT ||
+                           rr == ESP_RST_TASK_WDT || rr == ESP_RST_WDT ||
+                           rr == ESP_RST_BROWNOUT);
+    if (abnormal_reset && device_state_get_relay()) {
+        ESP_LOGW(TAG, "Abnormal reset (reason=%d) — not restoring relay ON", rr);
+        device_state_set_relay(false);
+        nvs_store_save_relay(false);
+    } else {
+        relay_set(device_state_get_relay());
+    }
     ESP_LOGI(TAG, "Relay restored → %s", device_state_get_relay() ? "ON" : "OFF");
 
     // 6. Temperature sensor — non-fatal if missing.

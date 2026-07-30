@@ -48,6 +48,7 @@ void nvs_store_load(device_state_t *state) {
 
     uint16_t maxon = 240;
     if (nvs_get_u16(h, "max_on", &maxon) == ESP_OK) {
+        if (maxon > MAX_ON_CEIL) maxon = MAX_ON_CEIL;
         state->max_on_minutes = maxon;
     }
 

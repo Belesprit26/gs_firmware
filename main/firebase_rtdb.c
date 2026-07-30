@@ -339,7 +339,6 @@ static void apply_full_settings(cJSON *data, bool is_put)
             if (want != device_state_get_relay()) {
                 ESP_LOGI(TAG, "Remote toggle → %s", want ? "ON" : "OFF");
                 device_state_set_relay(want);
-                relay_set(want);
                 nvs_store_save_relay(want);
                 gatt_server_notify_state(want);
                 relay_changed = true;
@@ -382,7 +381,7 @@ static void apply_full_settings(cJSON *data, bool is_put)
         uint16_t maxon = (uint16_t)j->valueint;
         ESP_LOGI(TAG, "Remote max-on → %u min", maxon);
         device_state_set_max_on_minutes(maxon);
-        nvs_store_save_max_on_minutes(maxon);
+        nvs_store_save_max_on_minutes(device_state_get_max_on_minutes());
     }
 
     if (relay_changed) {
@@ -398,7 +397,6 @@ static void apply_partial(const char *path, cJSON *data)
         if (want != device_state_get_relay()) {
             ESP_LOGI(TAG, "Remote toggle → %s", want ? "ON" : "OFF");
             device_state_set_relay(want);
-            relay_set(want);
             nvs_store_save_relay(want);
             gatt_server_notify_state(want);
             firebase_rtdb_push_live(device_state_get_temperature(),
@@ -450,7 +448,7 @@ static void apply_partial(const char *path, cJSON *data)
         uint16_t maxon = (uint16_t)data->valueint;
         ESP_LOGI(TAG, "Remote max-on → %u min", maxon);
         device_state_set_max_on_minutes(maxon);
-        nvs_store_save_max_on_minutes(maxon);
+        nvs_store_save_max_on_minutes(device_state_get_max_on_minutes());
     }
 }
 

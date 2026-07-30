@@ -67,6 +67,17 @@ void device_state_enforce_presets(void);
 /// limits are set almost equal (e.g. min=50, max=51).
 #define TEMP_MIN_DEADBAND  5
 
+// ── Max-on safety timer bounds ───────────────────────────────────
+
+/// Upper clamp for max_on_minutes (24 h) — mirrors the RTDB rules'
+/// 0..1440 range.  0 = disabled remains a legitimate explicit choice.
+#define MAX_ON_CEIL  1440
+
+/// While the temperature sensor is FAILED the configured max-on is
+/// overridden with this ceiling (even if the user chose 0/"Off"):
+/// heating blind must always be bounded.
+#define SENSOR_FAIL_MAX_ON_MIN  240
+
 /// Clamp a (min, max) pair to the ranges above and enforce
 /// TEMP_MIN_DEADBAND between them.  Used by every write path so the
 /// live state and the persisted NVS values can never diverge.
@@ -78,7 +89,14 @@ float   device_state_get_temperature(void);
 void    device_state_set_temperature(float temp);
 
 bool    device_state_get_relay(void);
+
+/// Sets the relay state AND drives the GPIO atomically (under the
+/// state mutex) — call sites must not call relay_set() themselves.
 void    device_state_set_relay(bool on);
+
+/// Re-drives the GPIO from the current state under the mutex.  Called
+/// periodically by the temperature task to self-heal any desync.
+void    device_state_reassert_relay(void);
 
 void    device_state_get_temp_limits(uint8_t *out_min, uint8_t *out_max);
 void    device_state_set_temp_limits(uint8_t min, uint8_t max);

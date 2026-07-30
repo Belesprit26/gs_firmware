@@ -4,6 +4,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
+#include "relay.h"
+
 // ── Preset timer definitions ─────────────────────────────────────
 
 const uint8_t PRESET_TIMER_HOURS[PRESET_TIMER_COUNT]   = { 4,  6, 15, 17 };
@@ -91,6 +93,16 @@ bool device_state_get_relay(void) {
 void device_state_set_relay(bool on) {
     device_state_lock();
     s_state.relay_on = on;
+    // Drive the GPIO under the same mutex so state and pin can never
+    // interleave into disagreement across tasks (state=OFF + GPIO=ON
+    // would blind the thermostat's auto-OFF and the max-on backstop).
+    relay_set(on);
+    device_state_unlock();
+}
+
+void device_state_reassert_relay(void) {
+    device_state_lock();
+    relay_set(s_state.relay_on);
     device_state_unlock();
 }
 
@@ -174,6 +186,11 @@ uint16_t device_state_get_max_on_minutes(void) {
 }
 
 void device_state_set_max_on_minutes(uint16_t minutes) {
+    // 0 = disabled is a legitimate, explicit user choice (the app offers
+    // "Off"); anything above MAX_ON_CEIL is clamped — mirrors the RTDB
+    // rules' 0..1440 range so BLE writes can't exceed what cloud allows.
+    if (minutes > MAX_ON_CEIL) minutes = MAX_ON_CEIL;
+
     device_state_lock();
     s_state.max_on_minutes = minutes;
     device_state_unlock();

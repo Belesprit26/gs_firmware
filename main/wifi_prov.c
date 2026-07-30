@@ -155,6 +155,12 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
         s_backoff_sec = BACKOFF_INITIAL_SEC;
         if (s_backoff_timer) xTimerStop(s_backoff_timer, 0);
         s_wifi_connected = true;
+        // Start SNTP on EVERY IP acquisition (idempotent), not just the
+        // provisioning success path — otherwise a device that boots
+        // faster than the router (e.g. after a power outage) reconnects
+        // via backoff but never syncs its clock, silently killing all
+        // schedule timers until reboot.
+        time_sync_start_sntp();
         if (s_prov_wifi_events)
             xEventGroupSetBits(s_prov_wifi_events, PROV_CONNECTED_BIT);
     }

@@ -84,8 +84,7 @@ static int on_state_access(uint16_t conn, uint16_t attr,
         os_mbuf_copydata(ctxt->om, 0, sizeof(val), &val);
 
         bool on = (val == 0x01);
-        device_state_set_relay(on);
-        relay_set(on);
+        device_state_set_relay(on);   // drives the GPIO under the state mutex
         nvs_store_save_relay(on);
 
         ESP_LOGI(TAG, "Relay → %s", on ? "ON" : "OFF");
@@ -330,7 +329,8 @@ static int on_maxon_access(uint16_t conn, uint16_t attr,
         uint16_t minutes = (uint16_t)buf[0] | ((uint16_t)buf[1] << 8);
 
         device_state_set_max_on_minutes(minutes);
-        nvs_store_save_max_on_minutes(minutes);
+        // Persist the CLAMPED value so NVS and live state never diverge.
+        nvs_store_save_max_on_minutes(device_state_get_max_on_minutes());
         firebase_rtdb_request_settings_push();
 
         ESP_LOGI(TAG, "Max-on timer → %u min (%s)",
