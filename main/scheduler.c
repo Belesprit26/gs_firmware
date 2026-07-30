@@ -2,6 +2,7 @@
 
 #include <time.h>
 #include "esp_log.h"
+#include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -19,8 +20,12 @@ void scheduler_task(void *param) {
 
     int last_fired_hh = -1;
     int last_fired_mm = -1;
+    int last_fired_day = -1;   // tm_yday — without it a timer only ever fires once
+
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
     for (;;) {
+        esp_task_wdt_reset();
         vTaskDelay(interval);
 
         if (!time_sync_is_valid()) continue;
@@ -35,7 +40,7 @@ void scheduler_task(void *param) {
         int hh = t.tm_hour;
         int mm = t.tm_min;
 
-        if (hh == last_fired_hh && mm == last_fired_mm) continue;
+        if (hh == last_fired_hh && mm == last_fired_mm && t.tm_yday == last_fired_day) continue;
 
         for (int i = 0; i < MAX_TIMERS; i++) {
             if (!timers[i].enabled) continue;
@@ -52,6 +57,7 @@ void scheduler_task(void *param) {
 
                     last_fired_hh = hh;
                     last_fired_mm = mm;
+                    last_fired_day = t.tm_yday;
                 }
             }
         }

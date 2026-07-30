@@ -13,6 +13,7 @@
 #include "time_sync.h"
 #include "event_buffer.h"
 #include "button.h"
+#include "owner_auth.h"
 #include "firebase_auth.h"
 #include "firebase_rtdb.h"
 #include "ota.h"

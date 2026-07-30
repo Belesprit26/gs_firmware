@@ -14,6 +14,10 @@
 #include "wifi_prov.h"
 #include "owner_auth.h"
 
+// Not exported by any NimBLE header — see ESP-IDF's own NimBLE examples,
+// which forward-declare it the same way.
+void ble_store_config_init(void);
+
 static const char *TAG = "ble";
 
 /// Advertising name — uses nickname if set, else provisioning-aware default.

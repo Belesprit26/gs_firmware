@@ -2,6 +2,7 @@
 
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_task_wdt.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -47,7 +48,10 @@ void button_task(void *param) {
     TickType_t press_start = 0;
     bool reset_fired    = false;
 
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
+
     for (;;) {
+        esp_task_wdt_reset();
         vTaskDelay(pdMS_TO_TICKS(POLL_MS));
 
         bool pressed = (gpio_get_level(s_pin) == 0);   // active-low

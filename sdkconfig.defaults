@@ -23,8 +23,13 @@ CONFIG_ESP_WIFI_ENABLED=y
 CONFIG_NVS_ENCRYPTION=n
 
 # ── Watchdog ──────────────────────────────────────────────────────
+# The control tasks (sensor/scheduler/button) subscribe to the TWDT and
+# feed it once per loop iteration.  Timeout must exceed the slowest loop
+# (scheduler: 30 s), hence 60 s.  PANIC=y so an expiry reboots the chip —
+# relay GPIO is low (OFF) through boot, which is the safe direction.
 CONFIG_ESP_TASK_WDT_EN=y
-CONFIG_ESP_TASK_WDT_TIMEOUT_S=30
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=60
+CONFIG_ESP_TASK_WDT_PANIC=y
 
 # ── OTA ───────────────────────────────────────────────────────────
 # App rollback: a freshly-OTA'd image boots in "pending verify" and is

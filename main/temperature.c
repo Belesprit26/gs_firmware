@@ -1,6 +1,7 @@
 #include "temperature.h"
 
 #include "esp_log.h"
+#include "esp_task_wdt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "onewire_bus.h"
@@ -182,7 +183,14 @@ esp_err_t temperature_read(float *out_temp_c) {
 void temperature_task(void *param) {
     const TickType_t interval = pdMS_TO_TICKS(10000);   // 10 s
 
+    // This task is the only one that ever turns the relay OFF (thermostat
+    // + max-on backstop).  If it hangs, the TWDT panics and the reboot
+    // lands with the relay GPIO low until state restore.
+    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
+
     for (;;) {
+        esp_task_wdt_reset();
+
         float raw_temp;
         bool valid_read = false;
 
