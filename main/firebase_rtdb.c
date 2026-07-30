@@ -41,6 +41,10 @@ static const char *TAG = "fb_rtdb";
 static volatile bool s_pending_live     = false;
 static volatile bool s_pending_settings = false;
 
+/// Set by process_sse_event on auth_revoked — makes the SSE loop
+/// reconnect with a freshly-refreshed token (same task, no race).
+static bool s_auth_reconnect = false;
+
 #define EVENT_QUEUE_DEPTH 8
 
 typedef struct {
@@ -456,8 +460,11 @@ static void process_sse_event(void)
 {
     if (strcmp(sse_evt_type, "put") != 0 &&
         strcmp(sse_evt_type, "patch") != 0) {
-        if (strcmp(sse_evt_type, "auth_revoked") == 0)
-            ESP_LOGW(TAG, "Auth revoked — will re-authenticate");
+        if (strcmp(sse_evt_type, "auth_revoked") == 0) {
+            ESP_LOGW(TAG, "Auth revoked — re-authenticating");
+            firebase_auth_invalidate_token();
+            s_auth_reconnect = true;   // break the SSE loop for a fresh token
+        }
         return;
     }
 
@@ -564,12 +571,21 @@ void firebase_task(void *param)
     firebase_rtdb_push_live(device_state_get_temperature(),
                             device_state_get_relay());
 
+    // Exponential backoff on connection failures: 3 s → 5 min.  A flat
+    // 3 s retry meant ~29k TLS handshakes/day (heap churn + radio) when
+    // RTDB was unreachable for an extended period.
+    uint32_t backoff_ms = RECONNECT_WAIT_MS;
+    #define SSE_BACKOFF_MAX_MS 300000
+
     for (;;) {
         const char *token = firebase_auth_get_id_token();
         if (!token) {
-            ESP_LOGW(TAG, "No token — retrying in %d ms", RECONNECT_WAIT_MS);
+            ESP_LOGW(TAG, "No token — retrying in %lu ms",
+                     (unsigned long)backoff_ms);
             process_pending();
-            vTaskDelay(pdMS_TO_TICKS(RECONNECT_WAIT_MS));
+            vTaskDelay(pdMS_TO_TICKS(backoff_ms));
+            backoff_ms *= 2;
+            if (backoff_ms > SSE_BACKOFF_MAX_MS) backoff_ms = SSE_BACKOFF_MAX_MS;
             continue;
         }
 
@@ -595,7 +611,9 @@ void firebase_task(void *param)
             ESP_LOGE(TAG, "SSE open failed: %s", esp_err_to_name(err));
             esp_http_client_cleanup(sse);
             process_pending();
-            vTaskDelay(pdMS_TO_TICKS(RECONNECT_WAIT_MS));
+            vTaskDelay(pdMS_TO_TICKS(backoff_ms));
+            backoff_ms *= 2;
+            if (backoff_ms > SSE_BACKOFF_MAX_MS) backoff_ms = SSE_BACKOFF_MAX_MS;
             continue;
         }
 
@@ -605,12 +623,21 @@ void firebase_task(void *param)
             ESP_LOGE(TAG, "SSE HTTP %d (content_len=%d)", status, content_len);
             esp_http_client_close(sse);
             esp_http_client_cleanup(sse);
+            // 401 = server rejected a locally-unexpired token (e.g.
+            // revoked server-side).  Previously we retried the SAME
+            // token until local expiry — up to ~55 min of dead cloud.
+            if (status == 401) {
+                firebase_auth_invalidate_token();
+            }
             process_pending();
-            vTaskDelay(pdMS_TO_TICKS(RECONNECT_WAIT_MS));
+            vTaskDelay(pdMS_TO_TICKS(backoff_ms));
+            backoff_ms *= 2;
+            if (backoff_ms > SSE_BACKOFF_MAX_MS) backoff_ms = SSE_BACKOFF_MAX_MS;
             continue;
         }
 
         ESP_LOGI(TAG, "SSE connected — listening for settings");
+        backoff_ms = RECONNECT_WAIT_MS;   // healthy connection — reset
         sse_line_pos = 0;
         sse_evt_type[0] = '\0';
         sse_data_pos = 0;
@@ -642,6 +669,12 @@ void firebase_task(void *param)
             }
 
             process_pending();
+
+            if (s_auth_reconnect) {
+                s_auth_reconnect = false;
+                connected = false;
+                break;
+            }
 
             TickType_t now = xTaskGetTickCount();
             if ((now - last_push) >= pdMS_TO_TICKS(PUSH_INTERVAL_MS)) {

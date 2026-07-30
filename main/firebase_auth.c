@@ -59,6 +59,31 @@ static esp_err_t on_http_data(esp_http_client_event_t *evt)
 
 // ── Token refresh ────────────────────────────────────────────────
 
+/// Failure backoff: a revoked refresh token (user changed password /
+/// deleted account) previously caused a blocking 10 s HTTPS POST every
+/// few seconds, forever.  Failures now back off 30 s → 1 h; HTTP 400
+/// (invalid_grant = token revoked, permanent) goes straight to the
+/// hourly ceiling.
+static int    s_refresh_fails = 0;
+static time_t s_retry_after   = 0;
+
+static void note_refresh_failure(bool permanent)
+{
+    time_t now;
+    time(&now);
+
+    if (permanent) {
+        s_retry_after = now + 3600;
+        ESP_LOGW(TAG, "Refresh token rejected (revoked?) — dormant 1 h");
+        return;
+    }
+    if (s_refresh_fails < 7) s_refresh_fails++;
+    int backoff = 30 << (s_refresh_fails - 1);   // 30s → 32min
+    s_retry_after = now + backoff;
+    ESP_LOGW(TAG, "Refresh failed (%d) — next attempt in %ds",
+             s_refresh_fails, backoff);
+}
+
 static bool do_refresh(void)
 {
     if (s_refresh[0] == '\0') return false;
@@ -91,6 +116,7 @@ static bool do_refresh(void)
 
     if (err != ESP_OK || status != 200) {
         ESP_LOGE(TAG, "Refresh failed: err=%d status=%d", err, status);
+        note_refresh_failure(status == 400);
         return false;
     }
 
@@ -125,6 +151,8 @@ static bool do_refresh(void)
     s_expiry = now + secs - 300;            // refresh 5 min early
 
     cJSON_Delete(json);
+    s_refresh_fails = 0;
+    s_retry_after   = 0;
     ESP_LOGI(TAG, "ID token refreshed (expires in %ds)", secs);
     return true;
 }
@@ -238,6 +266,12 @@ const char *firebase_auth_get_id_token(void)
     time(&now);
 
     if (s_id_token[0] == '\0' || now >= s_expiry) {
+        // Honour the failure backoff — don't hammer securetoken with a
+        // blocking POST on every caller retry.
+        if (now < s_retry_after) {
+            xSemaphoreGive(s_mutex);
+            return NULL;
+        }
         if (!do_refresh()) {
             xSemaphoreGive(s_mutex);
             return NULL;
@@ -246,6 +280,16 @@ const char *firebase_auth_get_id_token(void)
 
     xSemaphoreGive(s_mutex);
     return s_id_token;
+}
+
+void firebase_auth_invalidate_token(void)
+{
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    s_id_token[0] = '\0';
+    s_expiry      = 0;
+    s_retry_after = 0;   // server said 401 — retry the refresh now
+    xSemaphoreGive(s_mutex);
+    ESP_LOGW(TAG, "ID token invalidated — will refresh on next use");
 }
 
 const char *firebase_auth_get_device_id(void)

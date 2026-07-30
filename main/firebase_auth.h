@@ -21,9 +21,15 @@ void firebase_auth_set_device_id(const char *device_id);
 
 /// Return a valid Firebase ID token for RTDB REST API calls.
 /// Transparently refreshes the token if it has expired.
-/// Returns NULL if no credentials are stored or refresh fails.
+/// Returns NULL if no credentials are stored, refresh fails, or the
+/// failure backoff (30 s → 1 h) is active.
 /// The returned pointer is valid until the next call.
 const char *firebase_auth_get_id_token(void);
+
+/// Drop the cached ID token so the next get_id_token() refreshes.
+/// Call when the server rejects the token (HTTP 401 / auth_revoked)
+/// before local expiry — e.g. server-side revocation.
+void firebase_auth_invalidate_token(void);
 
 /// Device ID used in RTDB paths (e.g. "a3f9b21c").
 /// Derived from the BLE identifier by the app (SHA-256, 8-char hex)
