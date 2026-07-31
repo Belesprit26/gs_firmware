@@ -7,12 +7,15 @@
 #include "onewire_bus.h"
 #include "ds18b20.h"
 
+#include <time.h>
+
 #include "device_state.h"
 #include "gatt_server.h"
 #include "relay.h"
 #include "nvs_store.h"
 #include "event_buffer.h"
 #include "firebase_rtdb.h"
+#include "time_sync.h"
 
 static const char *TAG = "temp";
 
@@ -77,6 +80,33 @@ static bool s_sensor_fail_notified = false;
 
 static int  s_relay_on_seconds = 0;
 static bool s_was_relay_on     = false;
+
+/// Tick at which the run limit last switched the geyser off.  The
+/// scheduler reads this so a timer whose time coincides with the cutoff
+/// cannot immediately re-fire (see scheduler.c).
+static TickType_t s_last_limit_cutoff = 0;
+
+TickType_t temperature_last_limit_cutoff(void) {
+    return s_last_limit_cutoff;
+}
+
+/// Seconds the geyser has been continuously ON.
+///
+/// Prefers the persisted wall-clock stamp so the window survives a
+/// reboot; falls back to the RAM accumulator when the clock is unusable
+/// (BLE-only unit that has never been told the time, or post-outage
+/// before SNTP lands).
+int temperature_current_on_seconds(void) {
+    uint32_t since = device_state_get_relay_on_since();
+    if (since > 0 && time_sync_is_valid()) {
+        time_t now;
+        time(&now);
+        if ((uint32_t)now >= since) {
+            return (int)((uint32_t)now - since);
+        }
+    }
+    return s_relay_on_seconds;
+}
 
 // ── Telemetry buffering ──────────────────────────────────────────
 
@@ -329,9 +359,10 @@ void temperature_task(void *param) {
 
                 uint16_t max_on = device_state_get_max_on_minutes();
                 if (max_on > 0 &&
-                    s_relay_on_seconds >= (int)max_on * 60) {
+                    temperature_current_on_seconds() >= (int)max_on * 60) {
                     ESP_LOGI(TAG, "Max continuous run (%u min) reached — "
                              "switching off", max_on);
+                    s_last_limit_cutoff = xTaskGetTickCount();
                     device_state_set_relay(false);
                     nvs_store_save_relay(false);
                     gatt_server_notify_state(false);

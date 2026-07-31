@@ -1,10 +1,12 @@
 #include "device_state.h"
 
 #include <string.h>
+#include <time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
 #include "relay.h"
+#include "time_sync.h"
 
 // ── Preset timer definitions ─────────────────────────────────────
 
@@ -14,13 +16,16 @@ const uint8_t PRESET_TIMER_MINUTES[PRESET_TIMER_COUNT] = { 0,  0,  0,  0 };
 // ── Singleton state ──────────────────────────────────────────────
 
 static device_state_t s_state = {
-    .temperature    = 0.0f,
-    .relay_on       = false,
-    .temp_min       = 30,
-    .temp_max       = 60,
-    .auto_reheat    = false,
-    .sensor_ok      = true,
-    .max_on_minutes = 240,
+    .temperature      = 0.0f,
+    .relay_on         = false,
+    .temp_min         = 30,
+    .temp_max         = 60,
+    .auto_reheat      = false,
+    .sensor_ok        = true,
+    .max_on_minutes   = 240,
+    .fallback_enabled = true,
+    .relay_on_since   = 0,
+    .fallback_active  = false,
 };
 
 static SemaphoreHandle_t s_mutex;
@@ -91,11 +96,26 @@ bool device_state_get_relay(void) {
 }
 
 void device_state_set_relay(bool on) {
+    // Sampled before taking the lock — time_sync has its own state.
+    uint32_t now_epoch = 0;
+    if (on && time_sync_is_valid()) {
+        time_t now;
+        time(&now);
+        now_epoch = (uint32_t)now;
+    }
+
     device_state_lock();
+    bool changed = (s_state.relay_on != on);
     s_state.relay_on = on;
+    if (changed) {
+        // Stamp the start of a new ON stretch (0 when switching off, or
+        // when the clock is unusable — callers then fall back to the
+        // RAM tick counter).
+        s_state.relay_on_since = on ? now_epoch : 0;
+    }
     // Drive the GPIO under the same mutex so state and pin can never
-    // interleave into disagreement across tasks (state=OFF + GPIO=ON
-    // would blind the thermostat's auto-OFF and the max-on backstop).
+    // interleave into disagreement across tasks (state and GPIO
+    // disagreeing would make the setpoint cutoff act on a stale view).
     relay_set(on);
     device_state_unlock();
 }
@@ -183,6 +203,47 @@ uint16_t device_state_get_max_on_minutes(void) {
     uint16_t v = s_state.max_on_minutes;
     device_state_unlock();
     return v;
+}
+
+// ── Run-window tracking ──────────────────────────────────────────
+
+uint32_t device_state_get_relay_on_since(void) {
+    device_state_lock();
+    uint32_t v = s_state.relay_on_since;
+    device_state_unlock();
+    return v;
+}
+
+void device_state_set_relay_on_since(uint32_t epoch) {
+    device_state_lock();
+    s_state.relay_on_since = epoch;
+    device_state_unlock();
+}
+
+bool device_state_get_fallback_enabled(void) {
+    device_state_lock();
+    bool v = s_state.fallback_enabled;
+    device_state_unlock();
+    return v;
+}
+
+void device_state_set_fallback_enabled(bool enabled) {
+    device_state_lock();
+    s_state.fallback_enabled = enabled;
+    device_state_unlock();
+}
+
+bool device_state_get_fallback_active(void) {
+    device_state_lock();
+    bool v = s_state.fallback_active;
+    device_state_unlock();
+    return v;
+}
+
+void device_state_set_fallback_active(bool active) {
+    device_state_lock();
+    s_state.fallback_active = active;
+    device_state_unlock();
 }
 
 void device_state_set_max_on_minutes(uint16_t minutes) {

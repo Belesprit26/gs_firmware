@@ -40,7 +40,10 @@ typedef struct {
     bool     auto_reheat;          // auto-ON when temp <= temp_min
     gs_timer_t timers[MAX_TIMERS]; // [0..3] = presets, [4] = custom
     bool     sensor_ok;            // false when DS18B20 is unresponsive
-    uint16_t max_on_minutes;       // 0 = disabled, else relay forced OFF after N minutes
+    uint16_t max_on_minutes;       // 0 = disabled, else relay switched OFF after N minutes
+    bool     fallback_enabled;     // allow interval mode when the clock is unusable
+    uint32_t relay_on_since;       // epoch seconds of the current ON stretch (0 = unknown)
+    bool     fallback_active;      // RAM only: interval mode is currently driving the relay
 } device_state_t;
 
 /// Initialise the state mutex.  Call once before any other accessor.
@@ -117,6 +120,27 @@ void    device_state_set_sensor_ok(bool ok);
 
 uint16_t device_state_get_max_on_minutes(void);
 void     device_state_set_max_on_minutes(uint16_t minutes);
+
+// ── Run-window tracking ──────────────────────────────────────────
+//
+// The elapsed time of the current ON stretch drives the max continuous
+// run cutoff and the "time remaining" the app shows.  It is stamped as
+// a wall-clock epoch (one small NVS write per ON transition, no wear
+// concern) so it SURVIVES A REBOOT — otherwise a unit that restarts
+// mid-block silently restarts the window and runs longer than asked.
+// Falls back to a RAM tick counter whenever the clock is unusable.
+
+/// Epoch seconds at which the current ON stretch began, or 0 when the
+/// relay is off or the clock was invalid at switch-on.
+uint32_t device_state_get_relay_on_since(void);
+void     device_state_set_relay_on_since(uint32_t epoch);
+
+bool     device_state_get_fallback_enabled(void);
+void     device_state_set_fallback_enabled(bool enabled);
+
+/// Whether interval (clock-less) mode is currently driving the relay.
+bool     device_state_get_fallback_active(void);
+void     device_state_set_fallback_active(bool active);
 
 /// Copy all MAX_TIMERS timers into *out*.
 void    device_state_get_timers(gs_timer_t *out);

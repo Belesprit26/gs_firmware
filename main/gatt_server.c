@@ -16,6 +16,7 @@
 #include "firebase_rtdb.h"
 #include "firebase_auth.h"
 #include "owner_auth.h"
+#include "temperature.h"
 
 static const char *TAG = "gatt";
 
@@ -42,6 +43,7 @@ static const ble_uuid128_t uuid_ack     = GS_UUID128_INIT(0x0B);
 static const ble_uuid128_t uuid_devid  = GS_UUID128_INIT(0x0C);
 static const ble_uuid128_t uuid_maxon  = GS_UUID128_INIT(0x0D);
 static const ble_uuid128_t uuid_oauth  = GS_UUID128_INIT(0x0E);
+static const ble_uuid128_t uuid_runst  = GS_UUID128_INIT(0x0F);
 
 // ── Value handles (filled by NimBLE during registration) ─────────
 
@@ -371,6 +373,48 @@ static int on_oauth_access(uint16_t conn, uint16_t attr,
     return BLE_ATT_ERR_UNLIKELY;
 }
 
+/// Run status — Read only.
+///
+/// Format (7 bytes, little-endian):
+///   uint32 elapsed_on_seconds   0 when the geyser is off
+///   uint16 max_on_minutes       echo, so the app can show "time left"
+///                               from a single read (0 = no limit set)
+///   uint8  flags                bit0 interval-mode active
+///                               bit1 clock usable
+///                               bit2 sensor ok
+///
+/// Deliberately BLE-only: the app needs it while connected, and the
+/// interval-mode flag is only ever set when the device has no usable
+/// clock — which in practice means no WiFi and therefore no cloud
+/// anyway.  Keeping it off the RTDB `live` node avoids coupling this
+/// firmware to a security-rules deploy.
+static int on_runst_access(uint16_t conn, uint16_t attr,
+                           struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR)
+        return BLE_ATT_ERR_UNLIKELY;
+
+    uint32_t elapsed = 0;
+    if (device_state_get_relay()) {
+        int s = temperature_current_on_seconds();
+        if (s > 0) elapsed = (uint32_t)s;
+    }
+    uint16_t max_on = device_state_get_max_on_minutes();
+
+    uint8_t flags = 0;
+    if (device_state_get_fallback_active()) flags |= 0x01;
+    if (time_sync_is_valid())               flags |= 0x02;
+    if (device_state_get_sensor_ok())       flags |= 0x04;
+
+    uint8_t buf[7] = {
+        (uint8_t)(elapsed),       (uint8_t)(elapsed >> 8),
+        (uint8_t)(elapsed >> 16), (uint8_t)(elapsed >> 24),
+        (uint8_t)(max_on),        (uint8_t)(max_on >> 8),
+        flags,
+    };
+    os_mbuf_append(ctxt->om, buf, sizeof(buf));
+    return 0;
+}
+
 /// Stored device ID — Read only, unencrypted.
 /// Format: UTF-8 string (e.g. "a3f9b21c").
 /// Returns the RTDB device ID stored in NVS during provisioning.
@@ -477,6 +521,11 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
                 .access_cb  = on_oauth_access,
                 .flags      = BLE_GATT_CHR_F_READ_ENC
                             | BLE_GATT_CHR_F_WRITE_ENC,
+            },
+            {   // 0x0F — Run status: elapsed ON time + mode flags
+                .uuid       = &uuid_runst.u,
+                .access_cb  = on_runst_access,
+                .flags      = BLE_GATT_CHR_F_READ,
             },
             { 0 }, // sentinel
         },

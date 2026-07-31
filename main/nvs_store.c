@@ -52,6 +52,19 @@ void nvs_store_load(device_state_t *state) {
         state->max_on_minutes = maxon;
     }
 
+    // Interval-fallback opt-in (defaults to enabled on first boot).
+    val = 1;
+    if (nvs_get_u8(h, "fb_en", &val) == ESP_OK) {
+        state->fallback_enabled = (val == 1);
+    }
+
+    // Start of the ON stretch that was in progress at power-down, so a
+    // reboot mid-block resumes the same window instead of restarting it.
+    uint32_t since = 0;
+    if (nvs_get_u32(h, "on_since", &since) == ESP_OK) {
+        state->relay_on_since = state->relay_on ? since : 0;
+    }
+
     nvs_close(h);
     ESP_LOGI(TAG, "Config loaded (relay=%d, limits=[%d,%d], "
                   "auto_reheat=%d, max_on=%u min, timers loaded)",
@@ -79,6 +92,16 @@ void nvs_store_save_relay(bool on) {
     nvs_handle_t h;
     if (!open_write(&h)) return;
     nvs_set_u8(h, "relay", on ? 1 : 0);
+    // Persist the run-window start alongside the state it belongs to —
+    // one small write per ON/OFF transition, so no wear concern.
+    nvs_set_u32(h, "on_since", device_state_get_relay_on_since());
+    commit_and_close(h);
+}
+
+void nvs_store_save_fallback_enabled(bool enabled) {
+    nvs_handle_t h;
+    if (!open_write(&h)) return;
+    nvs_set_u8(h, "fb_en", enabled ? 1 : 0);
     commit_and_close(h);
 }
 

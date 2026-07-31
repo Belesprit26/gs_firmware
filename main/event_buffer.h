@@ -10,8 +10,10 @@
 #define EVT_MIN_TEMP_ALERT  0x03   // temp <= min, no auto-reheat → alert only
 #define EVT_SENSOR_FAIL     0x04   // temperature sensor offline
 #define EVT_SENSOR_RECOVER  0x05   // temperature sensor back online
-#define EVT_MAX_ON_TIMEOUT  0x06   // relay forced OFF after max-on limit
-#define EVT_TYPE_COUNT      6
+#define EVT_MAX_ON_TIMEOUT  0x06   // switched OFF after the max continuous run limit
+#define EVT_CLOCK_LOST      0x07   // clock unusable → schedule paused, interval mode on
+#define EVT_SCHEDULE_OK     0x08   // clock recovered → normal schedule resumed
+#define EVT_TYPE_COUNT      8
 
 // ── Buffer sizes ─────────────────────────────────────────────────
 

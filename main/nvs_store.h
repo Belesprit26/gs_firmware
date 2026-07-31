@@ -11,7 +11,12 @@ void nvs_store_load(device_state_t *state);
 
 /// Persist individual fields.  Each writes only the changed key
 /// to minimise flash wear.
+/// Persists the relay state AND the current run-window start stamp
+/// (device_state_get_relay_on_since()), which belong together.
 void nvs_store_save_relay(bool on);
+
+/// Persists the interval-fallback opt-in.
+void nvs_store_save_fallback_enabled(bool enabled);
 void nvs_store_save_temp_limits(uint8_t min, uint8_t max);
 void nvs_store_save_auto_reheat(bool enabled);
 
