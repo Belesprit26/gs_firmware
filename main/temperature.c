@@ -102,7 +102,14 @@ int temperature_current_on_seconds(void) {
         time_t now;
         time(&now);
         if ((uint32_t)now >= since) {
-            return (int)((uint32_t)now - since);
+            uint32_t elapsed = (uint32_t)now - since;
+            // Sanity clamp: a clock step (SNTP correcting a BLE-pushed
+            // time, or vice versa) can make the stamp nonsensical.  No
+            // legitimate block exceeds MAX_ON_CEIL (24 h); beyond twice
+            // that the stamp is garbage — trust the RAM counter.
+            if (elapsed <= 2u * 24u * 3600u) {
+                return (int)elapsed;
+            }
         }
     }
     return s_relay_on_seconds;

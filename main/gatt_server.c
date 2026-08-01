@@ -373,23 +373,43 @@ static int on_oauth_access(uint16_t conn, uint16_t attr,
     return BLE_ATT_ERR_UNLIKELY;
 }
 
-/// Run status — Read only.
+/// Run status — Read (encrypted), Write (encrypted, owner-gated).
 ///
-/// Format (7 bytes, little-endian):
+/// Read format (7 bytes, little-endian):
 ///   uint32 elapsed_on_seconds   0 when the geyser is off
 ///   uint16 max_on_minutes       echo, so the app can show "time left"
 ///                               from a single read (0 = no limit set)
 ///   uint8  flags                bit0 interval-mode active
 ///                               bit1 clock usable
 ///                               bit2 sensor ok
+///                               bit3 interval fallback enabled
+///
+/// Write format (1 byte): 0x00 disables the clock-less interval
+/// fallback, 0x01 enables it (persisted).
 ///
 /// Deliberately BLE-only: the app needs it while connected, and the
 /// interval-mode flag is only ever set when the device has no usable
 /// clock — which in practice means no WiFi and therefore no cloud
 /// anyway.  Keeping it off the RTDB `live` node avoids coupling this
-/// firmware to a security-rules deploy.
+/// firmware to a security-rules deploy.  Encrypted like 0x0D — it
+/// echoes the same setting plus occupancy-adjacent run data.
 static int on_runst_access(uint16_t conn, uint16_t attr,
                            struct ble_gatt_access_ctxt *ctxt, void *arg) {
+    if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        if (!owner_auth_gate_ok())
+            return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+        uint8_t val;
+        if (OS_MBUF_PKTLEN(ctxt->om) != 1)
+            return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        os_mbuf_copydata(ctxt->om, 0, sizeof(val), &val);
+
+        bool enabled = (val == 0x01);
+        device_state_set_fallback_enabled(enabled);
+        nvs_store_save_fallback_enabled(enabled);
+        ESP_LOGI(TAG, "Interval fallback %s", enabled ? "enabled" : "disabled");
+        return 0;
+    }
+
     if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR)
         return BLE_ATT_ERR_UNLIKELY;
 
@@ -401,9 +421,10 @@ static int on_runst_access(uint16_t conn, uint16_t attr,
     uint16_t max_on = device_state_get_max_on_minutes();
 
     uint8_t flags = 0;
-    if (device_state_get_fallback_active()) flags |= 0x01;
-    if (time_sync_is_valid())               flags |= 0x02;
-    if (device_state_get_sensor_ok())       flags |= 0x04;
+    if (device_state_get_fallback_active())  flags |= 0x01;
+    if (time_sync_is_valid())                flags |= 0x02;
+    if (device_state_get_sensor_ok())        flags |= 0x04;
+    if (device_state_get_fallback_enabled()) flags |= 0x08;
 
     uint8_t buf[7] = {
         (uint8_t)(elapsed),       (uint8_t)(elapsed >> 8),
@@ -522,10 +543,11 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
                 .flags      = BLE_GATT_CHR_F_READ_ENC
                             | BLE_GATT_CHR_F_WRITE_ENC,
             },
-            {   // 0x0F — Run status: elapsed ON time + mode flags
+            {   // 0x0F — Run status + interval-fallback opt-out (encrypted)
                 .uuid       = &uuid_runst.u,
                 .access_cb  = on_runst_access,
-                .flags      = BLE_GATT_CHR_F_READ,
+                .flags      = BLE_GATT_CHR_F_READ_ENC
+                            | BLE_GATT_CHR_F_WRITE_ENC,
             },
             { 0 }, // sentinel
         },

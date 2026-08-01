@@ -73,8 +73,11 @@ void button_task(void *param) {
                          (unsigned long)held_ms);
 
                 // Switch the geyser off before wiping, so a factory
-                // reset leaves it in a known, predictable state.
-                relay_set(false);
+                // reset leaves it in a known, predictable state.  Via
+                // the atomic setter — a bare relay_set() would leave
+                // device_state believing ON, and the temperature task's
+                // reassert could re-drive the GPIO during the erase.
+                device_state_set_relay(false);
 
                 // Erase all NVS (WiFi creds, UID, nickname, config).
                 nvs_flash_erase();

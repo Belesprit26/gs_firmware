@@ -30,7 +30,9 @@ static const char *TAG = "main";
 // ── Task stack sizes ─────────────────────────────────────────────
 
 #define SENSOR_STACK    4096
-#define SCHED_STACK     2048
+// Scheduler gained event-buffer + BLE-notify + queue depth in 0.7.0
+// (fire_event path) — 3072 gives comfortable canary margin.
+#define SCHED_STACK     3072
 #define BUTTON_STACK    2048
 #define FIREBASE_STACK  12288
 #define OTA_STACK       12288
@@ -74,8 +76,23 @@ void app_main(void) {
     //    next schedule fires, for a fault they never noticed.
     relay_init(PIN_RELAY);
     relay_set(device_state_get_relay());
+
+    // Run-window semantics across restarts: the max continuous run
+    // limit caps how long the geyser DRAWS POWER in one stretch.
+    //  - Device-only reboot (crash/watchdog/OTA): mains was only out
+    //    for the ~1 s of boot → keep on_since, the window RESUMES.
+    //  - Power-cycle (outage/brownout): the geyser was unpowered the
+    //    whole time, which must not count as run time → drop on_since
+    //    so the window restarts when power returns.  Otherwise a unit
+    //    booting after a long outage cuts off within minutes and sends
+    //    a bogus "max run reached" notification.
+    esp_reset_reason_t rr = esp_reset_reason();
+    if ((rr == ESP_RST_POWERON || rr == ESP_RST_BROWNOUT) &&
+        device_state_get_relay()) {
+        device_state_set_relay_on_since(0);
+    }
     ESP_LOGI(TAG, "Relay restored → %s (reset reason=%d)",
-             device_state_get_relay() ? "ON" : "OFF", (int)esp_reset_reason());
+             device_state_get_relay() ? "ON" : "OFF", (int)rr);
 
     // 6. Temperature sensor — non-fatal if missing.
     if (temperature_init(PIN_DS18B20) != ESP_OK) {
@@ -95,8 +112,9 @@ void app_main(void) {
     ble_init();
 
     // 9. WiFi — if WiFi creds are stored, reconnect in the background.
-    //    time_sync_start_sntp() is called inside prov_connect_task
-    //    after WiFi connects successfully.
+    //    SNTP starts from the GOT_IP event handler on every IP
+    //    acquisition (idempotent), so late-arriving routers still get
+    //    the clock synced.
     if (wifi_prov_has_wifi()) {
         ESP_LOGI(TAG, "WiFi credentials stored — reconnecting");
         wifi_prov_start_wifi();

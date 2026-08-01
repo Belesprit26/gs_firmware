@@ -147,8 +147,13 @@ void scheduler_task(void *param) {
                     nvs_store_save_relay(false);
                     gatt_server_notify_state(false);
                 }
+            // Tick maths, NOT pdMS_TO_TICKS(off_min * 60000): that macro
+            // is 32-bit and its intermediate (ms * tick rate) overflows
+            // for periods >= ~12 h — which the common one-timer config
+            // produces (20 h off).  One minute in ticks times minutes
+            // stays far below 2^32.
             } else if ((now_tick - fb_off_since) >=
-                       pdMS_TO_TICKS((uint32_t)off_min * 60000)) {
+                       pdMS_TO_TICKS(60000) * (TickType_t)off_min) {
                 ESP_LOGI(TAG, "Interval mode → ON (after %d min off)", off_min);
                 device_state_set_relay(true);
                 nvs_store_save_relay(true);

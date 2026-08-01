@@ -121,7 +121,13 @@ static bool do_refresh(void)
     }
 
     cJSON *json = cJSON_Parse(body);
-    if (!json) { ESP_LOGE(TAG, "JSON parse failed"); return false; }
+    if (!json) {
+        // A captive portal / proxy answering 200-with-HTML must back
+        // off like any other failure, or every caller hammers it.
+        ESP_LOGE(TAG, "JSON parse failed");
+        note_refresh_failure(false);
+        return false;
+    }
 
     cJSON *jtok = cJSON_GetObjectItem(json, "id_token");
     cJSON *jref = cJSON_GetObjectItem(json, "refresh_token");
@@ -129,6 +135,7 @@ static bool do_refresh(void)
 
     if (!cJSON_IsString(jtok) || !cJSON_IsString(jref)) {
         ESP_LOGE(TAG, "Missing fields in token response");
+        note_refresh_failure(false);
         cJSON_Delete(json);
         return false;
     }
@@ -213,6 +220,15 @@ void firebase_auth_set_credentials(const char *refresh_token,
 
     strncpy(s_refresh,   refresh_token, sizeof(s_refresh)   - 1);
     strncpy(s_device_id, device_id,     sizeof(s_device_id) - 1);
+
+    // Fresh credentials void any failure state from the OLD ones.
+    // Without this, a user who fixes a revoked token by re-provisioning
+    // still waits out the up-to-1 h refresh cooldown with the cloud
+    // silently dormant.
+    s_refresh_fails = 0;
+    s_retry_after   = 0;
+    s_id_token[0]   = '\0';
+    s_expiry        = 0;
 
     nvs_handle_t h;
     if (nvs_open(NVS_NS_PROV, NVS_READWRITE, &h) == ESP_OK) {

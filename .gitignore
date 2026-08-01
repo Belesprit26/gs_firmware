@@ -1,10 +1,11 @@
 build/
 sdkconfig
 sdkconfig.old
-# managed_components/ and dependencies.lock are deliberately COMMITTED:
-# vendoring the exact component sources makes every build (local, CI,
-# release) byte-identical and immune to upstream registry changes — the
-# DS18B20 driver is safety-critical, so it must not float.
+# The sensor drivers are vendored as source under components/ (the
+# DS18B20 driver is what the thermostat reads — it must not float).
+# dependencies.lock is NOT committed: with no registry dependencies it
+# pins nothing, and it embeds machine-specific absolute paths.
+dependencies.lock
 .vscode/
 .cursor/
 .cache/
