@@ -57,11 +57,15 @@ void device_state_enforce_presets(void);
 //
 // The user's smart setpoints, applied ON TOP OF the geyser's own
 // mechanical thermostat by gating mains power: they let the user run
-// cooler (and so cheaper) than the geyser's factory setting.  Cutting
-// power when the measured temperature exceeds max_t also adds a real
-// protective layer for the case the geyser's own thermostat sticks
-// closed — which is why TEMP_MAX_CEIL is capped below a typical
-// factory setpoint.
+// cooler (and so cheaper) than the factory setting, or hold a normal
+// hot-water temperature.  Cutting power when the measured temperature
+// exceeds max_t still adds a protective backstop should the geyser's
+// own thermostat stick closed — the cut then happens at a safe
+// hot-water temperature, far below the TP relief valve (~93 °C) that
+// remains the true over-temperature safety device.  TEMP_MAX_CEIL now
+// tracks the top of the usual factory-thermostat range rather than
+// sitting below it, matching what real geysers do; the backstop still
+// fires, just nearer the top of that range.
 //
 // Enforced at every entry point (BLE, Firebase, NVS load) via
 // device_state_clamp_limits(), which applies both the ranges below
@@ -71,7 +75,7 @@ void device_state_enforce_presets(void);
 #define TEMP_MIN_FLOOR   5
 #define TEMP_MIN_CEIL   50
 #define TEMP_MAX_FLOOR  51
-#define TEMP_MAX_CEIL   65
+#define TEMP_MAX_CEIL   70
 
 /// Minimum gap (°C) enforced between temp_min and temp_max.  Prevents
 /// rapid ON/OFF relay cycling when auto-reheat is enabled and the two
