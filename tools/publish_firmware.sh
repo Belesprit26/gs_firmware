@@ -2,7 +2,8 @@
 #
 # Publish a GeyserSwitch (gs_rework) firmware build for OTA.
 #
-# Uploads the built app image to Firebase Storage and updates the RTDB
+# Uploads the built app image to the gs_rework Firebase Storage path
+# (/firmware_gs/, non-public + download-token) and updates the RTDB
 # manifest at /firmware/latest that devices poll (see main/ota.c).
 #
 # Prerequisites:
@@ -33,9 +34,16 @@ VERSION="${1:-$(tr -d '[:space:]' < "$ROOT/version.txt")}"
 [ -f "$BIN" ] || { echo "error: $BIN not found — run 'idf.py build' first" >&2; exit 1; }
 [ -n "$VERSION" ] || { echo "error: empty version" >&2; exit 1; }
 
-OBJECT="firmware/gs_rework/gs_rework-${VERSION}.bin"
+# gs_rework firmware lives under its OWN Storage path, /firmware_gs/, which
+# storage.rules keeps non-public (read: if false). Devices download it via a
+# Firebase Storage *download token* baked into the manifest URL below; the
+# token bypasses the rule for legitimate devices while an unauthenticated
+# party (who can't read the auth-gated RTDB manifest) can't fetch the binary.
+# The legacy Orange fleet's public /firmware/ path is untouched.
+OBJECT="firmware_gs/gs_rework-${VERSION}.bin"
 ENCODED="$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$OBJECT")"
-DOWNLOAD_URL="https://firebasestorage.googleapis.com/v0/b/${BUCKET}/o/${ENCODED}?alt=media"
+TOKEN="$(python3 -c "import uuid; print(uuid.uuid4())")"
+DOWNLOAD_URL="https://firebasestorage.googleapis.com/v0/b/${BUCKET}/o/${ENCODED}?alt=media&token=${TOKEN}"
 SHA256="$(shasum -a 256 "$BIN" | awk '{print $1}')"
 
 echo "Publishing gs_rework ${VERSION}"
@@ -44,7 +52,9 @@ echo "  sha256: ${SHA256}"
 echo "  object: gs://${BUCKET}/${OBJECT}"
 
 # ── Upload the binary ────────────────────────────────────────────
-gsutil -h "Content-Type:application/octet-stream" cp "$BIN" "gs://${BUCKET}/${OBJECT}"
+gsutil -h "Content-Type:application/octet-stream" \
+       -h "x-goog-meta-firebaseStorageDownloadTokens:${TOKEN}" \
+       cp "$BIN" "gs://${BUCKET}/${OBJECT}"
 
 # ── Update the manifest (last, so devices never see a URL 404) ───
 MANIFEST="$(cat <<JSON

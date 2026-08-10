@@ -3,6 +3,7 @@
 #include "firebase_auth.h"
 
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
 
 #include "esp_log.h"
@@ -13,6 +14,8 @@
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
 #include "cJSON.h"
+#include "esp_partition.h"
+#include "mbedtls/sha256.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -131,9 +134,52 @@ static void reboot_when_safe(void)
     esp_restart();
 }
 
+// ── Image hash verification ──────────────────────────────────────
+
+/// Hash the written OTA image and compare it to the manifest's
+/// lowercase-hex sha256. Runs AFTER esp_https_ota_finish(): ESP-IDF
+/// writes the image header last (so an interrupted flash isn't
+/// bootable), so the partition only equals the published .bin once
+/// finish() has run. Integrity only — a forged manifest can set a
+/// matching hash; see SECURE_BOOT.md B1 for signature authenticity.
+static bool image_sha256_ok(const esp_partition_t *part, int image_len,
+                            const char *expected_hex)
+{
+    if (!part || image_len <= 0) {
+        ESP_LOGW(TAG, "sha256: no partition / unknown length — skipping check");
+        return true;   // don't block a good update on a lookup quirk
+    }
+
+    mbedtls_sha256_context ctx;
+    mbedtls_sha256_init(&ctx);
+    mbedtls_sha256_starts(&ctx, 0);   // 0 = SHA-256, not SHA-224
+
+    static uint8_t buf[512];
+    bool ok = true;
+    for (int off = 0; off < image_len; ) {
+        int chunk = image_len - off;
+        if (chunk > (int)sizeof(buf)) chunk = sizeof(buf);
+        if (esp_partition_read(part, off, buf, chunk) != ESP_OK) {
+            ok = false;
+            break;
+        }
+        mbedtls_sha256_update(&ctx, buf, chunk);
+        off += chunk;
+    }
+
+    uint8_t digest[32];
+    if (ok) mbedtls_sha256_finish(&ctx, digest);
+    mbedtls_sha256_free(&ctx);
+    if (!ok) return false;
+
+    char hex[65];
+    for (int i = 0; i < 32; i++) snprintf(hex + i * 2, 3, "%02x", digest[i]);
+    return strcasecmp(hex, expected_hex) == 0;
+}
+
 // ── Perform the update ───────────────────────────────────────────
 
-static void do_update(const char *bin_url)
+static void do_update(const char *bin_url, const char *expected_sha256)
 {
     ESP_LOGI(TAG, "Starting OTA download");
 
@@ -182,13 +228,32 @@ static void do_update(const char *bin_url)
         return;
     }
 
-    err = esp_https_ota_finish(handle);   // validates image + sets boot partition
+    // Capture the target slot + downloaded length while the handle is still
+    // valid — the integrity check below needs them after finish() frees it.
+    const esp_partition_t *update_part = esp_ota_get_next_update_partition(NULL);
+    int image_len = esp_https_ota_get_image_len_read(handle);
+
+    err = esp_https_ota_finish(handle);   // validates image, writes header, sets boot
     if (err != ESP_OK) {
         if (err == ESP_ERR_OTA_VALIDATE_FAILED)
             ESP_LOGE(TAG, "OTA image failed validation — not applied");
         else
             ESP_LOGE(TAG, "esp_https_ota_finish failed: %s", esp_err_to_name(err));
         return;
+    }
+
+    // Integrity gate: hash the now-complete image against the manifest sha256.
+    // finish() already flipped the boot pointer, so on a mismatch we point it
+    // back at the running image — the bad slot is simply never booted (and is
+    // overwritten by the next update). Catches a corrupted download or a
+    // swapped storage object; not a signature — that is B1 in SECURE_BOOT.md.
+    if (expected_sha256 && strlen(expected_sha256) == 64) {
+        if (!image_sha256_ok(update_part, image_len, expected_sha256)) {
+            ESP_LOGE(TAG, "OTA sha256 mismatch — reverting to current image");
+            esp_ota_set_boot_partition(esp_ota_get_running_partition());
+            return;
+        }
+        ESP_LOGI(TAG, "OTA sha256 verified");
     }
 
     ESP_LOGI(TAG, "OTA image written and validated");
@@ -210,15 +275,17 @@ static void check_for_update(void)
 
     cJSON *jver = cJSON_GetObjectItem(json, "version");
     cJSON *jurl = cJSON_GetObjectItem(json, "url");
+    cJSON *jsha = cJSON_GetObjectItem(json, "sha256");
 
     if (cJSON_IsString(jver) && cJSON_IsString(jurl)) {
         const char *cur = esp_app_get_description()->version;
         if (version_is_newer(jver->valuestring, cur)) {
             ESP_LOGI(TAG, "Update available: %s (running %s)",
                      jver->valuestring, cur);
-            // jurl points into `json`; esp_http_client copies the URL, and
+            // jurl/jsha point into `json`; esp_http_client copies the URL and
             // do_update reboots on success, so keeping json alive is fine.
-            do_update(jurl->valuestring);
+            const char *sha = cJSON_IsString(jsha) ? jsha->valuestring : NULL;
+            do_update(jurl->valuestring, sha);
         } else {
             ESP_LOGI(TAG, "Firmware up to date (running %s, latest %s)",
                      cur, jver->valuestring);
