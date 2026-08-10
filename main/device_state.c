@@ -105,6 +105,14 @@ void device_state_set_relay(bool on) {
     }
 
     device_state_lock();
+    // A water-leak lockout hard-blocks powering ON — switching OFF is always
+    // allowed, so a leak can still cut the relay. Single choke point: the
+    // scheduler, auto-reheat, button and remote all set the relay through
+    // here, so none can re-energise a wet geyser.
+    if (on && s_state.leak_lockout) {
+        device_state_unlock();
+        return;
+    }
     bool changed = (s_state.relay_on != on);
     s_state.relay_on = on;
     if (changed) {
@@ -217,6 +225,19 @@ uint32_t device_state_get_relay_on_since(void) {
 void device_state_set_relay_on_since(uint32_t epoch) {
     device_state_lock();
     s_state.relay_on_since = epoch;
+    device_state_unlock();
+}
+
+bool device_state_get_leak_lockout(void) {
+    device_state_lock();
+    bool v = s_state.leak_lockout;
+    device_state_unlock();
+    return v;
+}
+
+void device_state_set_leak_lockout(bool locked) {
+    device_state_lock();
+    s_state.leak_lockout = locked;
     device_state_unlock();
 }
 

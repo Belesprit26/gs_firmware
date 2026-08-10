@@ -17,5 +17,6 @@ idf_component_register(
         "ota.c"
         "owner_auth.c"
         "led.c"
+        "leak.c"
     INCLUDE_DIRS "."
 )

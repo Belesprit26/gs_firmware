@@ -44,6 +44,7 @@ typedef struct {
     bool     fallback_enabled;     // allow interval mode when the clock is unusable
     uint32_t relay_on_since;       // epoch seconds of the current ON stretch (0 = unknown)
     bool     fallback_active;      // RAM only: interval mode is currently driving the relay
+    bool     leak_lockout;         // RAM only: a water leak is blocking power-on
 } device_state_t;
 
 /// Initialise the state mutex.  Call once before any other accessor.
@@ -112,6 +113,12 @@ void    device_state_set_relay(bool on);
 /// Re-drives the GPIO from the current state under the mutex.  Called
 /// periodically by the temperature task to self-heal any desync.
 void    device_state_reassert_relay(void);
+
+/// Water-leak lockout. While set, device_state_set_relay(true) is refused
+/// (switching OFF is always allowed), so nothing can re-energise a wet
+/// geyser. Set/cleared by the leak task; RAM-only (never persisted).
+bool    device_state_get_leak_lockout(void);
+void    device_state_set_leak_lockout(bool locked);
 
 void    device_state_get_temp_limits(uint8_t *out_min, uint8_t *out_max);
 void    device_state_set_temp_limits(uint8_t min, uint8_t max);

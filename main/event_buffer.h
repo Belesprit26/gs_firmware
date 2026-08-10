@@ -13,7 +13,9 @@
 #define EVT_MAX_ON_TIMEOUT  0x06   // switched OFF after the max continuous run limit
 #define EVT_CLOCK_LOST      0x07   // clock unusable → schedule paused, interval mode on
 #define EVT_SCHEDULE_OK     0x08   // clock recovered → normal schedule resumed
-#define EVT_TYPE_COUNT      8
+#define EVT_LEAK            0x09   // water leak detected (probes bridged)
+#define EVT_LEAK_CLEAR      0x0A   // water leak cleared (probes dry)
+#define EVT_TYPE_COUNT      10
 
 // ── Buffer sizes ─────────────────────────────────────────────────
 

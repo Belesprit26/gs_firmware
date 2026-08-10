@@ -19,6 +19,7 @@
 #include "firebase_rtdb.h"
 #include "ota.h"
 #include "led.h"
+#include "leak.h"
 
 static const char *TAG = "main";
 
@@ -28,6 +29,7 @@ static const char *TAG = "main";
 #define PIN_DS18B20     GPIO_NUM_21     // D3
 #define PIN_BUTTON      GPIO_NUM_2      // A2 / D2
 #define PIN_LED         GPIO_NUM_1      // A1 / D1 — WS2812B status LED (D9)
+#define PIN_LEAK        GPIO_NUM_22     // D4 / SDA — water-leak probes (Leak_1)
 
 // ── Task stack sizes ─────────────────────────────────────────────
 
@@ -37,6 +39,7 @@ static const char *TAG = "main";
 #define SCHED_STACK     3072
 #define BUTTON_STACK    2048
 #define LED_STACK       3072
+#define LEAK_STACK      2048
 #define FIREBASE_STACK  12288
 #define OTA_STACK       12288
 
@@ -147,11 +150,15 @@ void app_main(void) {
     // relay, with button + wipe feedback. Non-fatal if init fails.
     led_init(PIN_LED);
 
+    // Water-leak sensor — cuts and locks power OFF on a confirmed leak.
+    leak_init(PIN_LEAK);
+
     // 12. Background tasks.
     xTaskCreate(temperature_task, "sensor",    SENSOR_STACK, NULL, 5, NULL);
     xTaskCreate(scheduler_task,   "scheduler", SCHED_STACK,  NULL, 3, NULL);
     xTaskCreate(button_task,      "button",    BUTTON_STACK, NULL, 4, NULL);
     xTaskCreate(led_task,         "led",       LED_STACK,    NULL, 2, NULL);
+    xTaskCreate(leak_task,        "leak",      LEAK_STACK,   NULL, 4, NULL);
 
     // 13. OTA — lowest priority.  Confirms the running image (cancels
     //     rollback) and checks for updates; waits internally for WiFi +
