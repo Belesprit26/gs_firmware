@@ -128,6 +128,14 @@ void device_state_set_relay(bool on) {
     device_state_unlock();
 }
 
+void device_state_user_set_relay(bool on) {
+    // A user turning the geyser ON overrides a leak latch (they've been
+    // warned and chosen to resume). Automatic callers keep using
+    // device_state_set_relay(), which the lockout still blocks.
+    if (on) device_state_set_leak_lockout(false);
+    device_state_set_relay(on);
+}
+
 void device_state_reassert_relay(void) {
     device_state_lock();
     relay_set(s_state.relay_on);

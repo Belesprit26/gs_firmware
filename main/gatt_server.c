@@ -86,7 +86,7 @@ static int on_state_access(uint16_t conn, uint16_t attr,
         os_mbuf_copydata(ctxt->om, 0, sizeof(val), &val);
 
         bool on = (val == 0x01);
-        device_state_set_relay(on);   // drives the GPIO under the state mutex
+        device_state_user_set_relay(on);   // user toggle: clears a leak latch
         nvs_store_save_relay(on);
 
         ESP_LOGI(TAG, "Relay → %s", on ? "ON" : "OFF");

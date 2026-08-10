@@ -365,7 +365,7 @@ static void apply_full_settings(cJSON *data, bool is_put)
             bool want = cJSON_IsTrue(j);
             if (want != device_state_get_relay()) {
                 ESP_LOGI(TAG, "Remote toggle → %s", want ? "ON" : "OFF");
-                device_state_set_relay(want);
+                device_state_user_set_relay(want);
                 nvs_store_save_relay(want);
                 gatt_server_notify_state(want);
                 relay_changed = true;
@@ -423,7 +423,7 @@ static void apply_partial(const char *path, cJSON *data)
         bool want = cJSON_IsTrue(data);
         if (want != device_state_get_relay()) {
             ESP_LOGI(TAG, "Remote toggle → %s", want ? "ON" : "OFF");
-            device_state_set_relay(want);
+            device_state_user_set_relay(want);
             nvs_store_save_relay(want);
             gatt_server_notify_state(want);
             firebase_rtdb_push_live(device_state_get_temperature(),

@@ -102,7 +102,7 @@ void button_task(void *param) {
             if (held_ms >= DEBOUNCE_MS && held_ms <= BUTTON_SHORT_MAX_MS) {
                 // Short press → toggle relay.
                 bool on = !device_state_get_relay();
-                device_state_set_relay(on);
+                device_state_user_set_relay(on);
                 nvs_store_save_relay(on);
                 gatt_server_notify_state(on);
                 firebase_rtdb_request_settings_push();

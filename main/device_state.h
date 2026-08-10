@@ -110,6 +110,13 @@ bool    device_state_get_relay(void);
 /// state mutex) — call sites must not call relay_set() themselves.
 void    device_state_set_relay(bool on);
 
+/// Like device_state_set_relay(), but for an explicit USER action
+/// (button / BLE / remote): turning ON also clears any leak lockout — the
+/// user has been warned and chosen to resume. Automatic callers (scheduler,
+/// auto-reheat) keep using device_state_set_relay(), which the lockout
+/// still blocks.
+void    device_state_user_set_relay(bool on);
+
 /// Re-drives the GPIO from the current state under the mutex.  Called
 /// periodically by the temperature task to self-heal any desync.
 void    device_state_reassert_relay(void);
