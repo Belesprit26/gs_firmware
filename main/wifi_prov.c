@@ -576,6 +576,10 @@ static const struct ble_gatt_svc_def prov_svcs[] = {
 
 // ── Public API ───────────────────────────────────────────────────
 
+bool wifi_prov_is_link_up(void) {
+    return s_wifi_connected;
+}
+
 bool wifi_prov_is_provisioned(void) {
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) return false;

@@ -19,10 +19,15 @@ static const char *TAG = "button";
 
 #define POLL_MS         20      // polling interval
 #define DEBOUNCE_MS     50      // ignore presses shorter than this
-#define SHORT_MAX_MS    5000    // max duration for a "short press"
-#define RESET_HOLD_MS   10000   // hold this long for factory reset
+// SHORT_MAX / RESET_HOLD thresholds live in button.h (BUTTON_*) so the
+// status LED can track the same values.
 
 static gpio_num_t s_pin;
+
+// Live press state, exposed to the LED task via button_held_ms().
+// Single writer (button_task), single reader (led_task) — no lock needed.
+static volatile bool       s_pressed     = false;
+static volatile TickType_t s_press_start = 0;
 
 // ── Init ─────────────────────────────────────────────────────────
 
@@ -58,8 +63,9 @@ void button_task(void *param) {
 
         // ── Rising edge: button just pressed ─────────────────────
         if (pressed && !was_pressed) {
-            press_start  = xTaskGetTickCount();
-            reset_fired  = false;
+            press_start   = xTaskGetTickCount();
+            s_press_start = press_start;
+            reset_fired   = false;
         }
 
         // ── Held: check for factory-reset threshold ──────────────
@@ -67,7 +73,7 @@ void button_task(void *param) {
             uint32_t held_ms =
                 (xTaskGetTickCount() - press_start) * portTICK_PERIOD_MS;
 
-            if (held_ms >= RESET_HOLD_MS) {
+            if (held_ms >= BUTTON_RESET_HOLD_MS) {
                 reset_fired = true;
                 ESP_LOGW(TAG, "=== FACTORY RESET (held %lu ms) ===",
                          (unsigned long)held_ms);
@@ -93,7 +99,7 @@ void button_task(void *param) {
             uint32_t held_ms =
                 (xTaskGetTickCount() - press_start) * portTICK_PERIOD_MS;
 
-            if (held_ms >= DEBOUNCE_MS && held_ms <= SHORT_MAX_MS) {
+            if (held_ms >= DEBOUNCE_MS && held_ms <= BUTTON_SHORT_MAX_MS) {
                 // Short press → toggle relay.
                 bool on = !device_state_get_relay();
                 device_state_set_relay(on);
@@ -104,13 +110,21 @@ void button_task(void *param) {
 
                 ESP_LOGI(TAG, "Short press (%lu ms) → relay %s",
                          (unsigned long)held_ms, on ? "ON" : "OFF");
-            } else if (held_ms > SHORT_MAX_MS && !reset_fired) {
+            } else if (held_ms > BUTTON_SHORT_MAX_MS && !reset_fired) {
                 // Medium press (2–10 s) — intentionally ignored.
                 ESP_LOGI(TAG, "Medium press (%lu ms) — ignored",
                          (unsigned long)held_ms);
             }
         }
 
+        s_pressed   = pressed;
         was_pressed = pressed;
     }
+}
+
+// ── LED-facing accessor ──────────────────────────────────────────
+
+uint32_t button_held_ms(void) {
+    if (!s_pressed) return 0;
+    return (xTaskGetTickCount() - s_press_start) * portTICK_PERIOD_MS;
 }

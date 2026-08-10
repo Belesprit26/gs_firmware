@@ -1,8 +1,14 @@
 # RGB status LED — behaviour spec
 
-Status: **spec (not yet implemented).** There is no LED code in the firmware
-today; this defines the behaviour to build. Pairs with the HARDWARE_ROADMAP
-item "RGB LED shows correct status colours".
+Status: **core implemented** — `main/led.c` + `led.h`, wired in `main.c`,
+task `led_task`. Implemented: resting colours (white / blue / green / amber)
+with breathe (ON) / steady (OFF), the button blackout + toggle-confirm
+(white→green/red→white) + wipe strobe / solid-red, and the relay-edge
+confirm from any source. **Deferred to a later pass:** the detailed
+provisioning sub-status (connecting green-blink, wifi-fail red-blink — needs
+a `prov_status` getter) and the OTA / sensor-offline / leak overlays.
+Written but **not yet compiled** (no local ESP-IDF) — bench validation is §8
+of `TEST_CHECKLIST.md`.
 
 ---
 
@@ -30,19 +36,15 @@ a cupboard or ceiling, and a bright pixel at night is a nuisance.
 > single-gate level shifter, or a 3.3 V-native pixel (SK6812 / WS2812C). The
 > firmware (`led_strip` over RMT on GPIO1) is identical in every case.
 
-## Prerequisites (small firmware additions)
+## Prerequisites — DONE
 
-The LED task polls existing state, but two **live** signals are not exposed
-yet — add tiny getters:
-
-- `wifi_prov_is_link_up()` → returns `s_wifi_connected` (`wifi_prov.c`) — the
-  live WiFi link, distinct from "has stored creds" (`wifi_prov_has_wifi()`).
-- `firebase_rtdb_is_online()` → the SSE `connected` flag (`firebase_rtdb.c`) —
-  true cloud reachability. (Fallback if you'd rather not expose the stream
-  flag: `firebase_auth_is_ready()`, which only means a valid token exists.)
-
-Everything else is already readable: `wifi_prov_is_provisioned()`,
-`ble_get_conn_handle()`, `owner_auth_is_unlocked()`, `device_state_get_relay()`.
+Added: `wifi_prov_is_link_up()` (`wifi_prov.c`), `ble_is_connected()`
+(`ble_init.c`), and `button_held_ms()` + public `BUTTON_SHORT_MAX_MS` /
+`BUTTON_RESET_HOLD_MS` (`button.c/.h`) so the LED tracks the real thresholds.
+Cloud-online is derived as `wifi_prov_is_link_up() && firebase_auth_is_ready()`
+— a dedicated `firebase_rtdb_is_online()` (the SSE stream flag) was left for
+later if more precision is wanted. Relay + BLE + provisioned state were already
+readable.
 
 Drive all button animations from the button's own constants so the LED always
 tracks them: `SHORT_MAX_MS` (5 s toggle window) and `RESET_HOLD_MS` (10 s

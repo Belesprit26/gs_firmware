@@ -16,5 +16,6 @@ idf_component_register(
         "firebase_rtdb.c"
         "ota.c"
         "owner_auth.c"
+        "led.c"
     INCLUDE_DIRS "."
 )

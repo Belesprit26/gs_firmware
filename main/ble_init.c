@@ -33,6 +33,10 @@ uint16_t ble_get_conn_handle(void) {
     return s_conn_handle;
 }
 
+bool ble_is_connected(void) {
+    return s_conn_handle != BLE_HS_CONN_HANDLE_NONE;
+}
+
 // ── GAP event handler ────────────────────────────────────────────
 
 static int gap_event_cb(struct ble_gap_event *event, void *arg) {

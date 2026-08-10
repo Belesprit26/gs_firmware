@@ -3,4 +3,9 @@
 # thermostat and sensor-failure failsafe depend on, so their source must
 # be fixed at a reviewed version and identical in every build (local, CI,
 # release) — not re-resolved from an upstream that can change.
-dependencies: {}
+dependencies:
+  # The WS2812B status LED (D9) uses Espressif's addressable-LED driver.
+  # Registry-managed rather than vendored: unlike the sensor path above it
+  # is not safety-critical, so a resolved version is acceptable. Adjust the
+  # constraint if your ESP-IDF can't resolve it.
+  espressif/led_strip: "^2.4"

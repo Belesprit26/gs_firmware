@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdint.h>
 #include "driver/gpio.h"
 
 /// Initialise the physical button on the given GPIO pin.
@@ -17,3 +18,11 @@ void button_init(gpio_num_t pin);
 /// (you don't need to release the button).  The board reboots into
 /// "GeyserSwitch-Setup" mode with all config cleared.
 void button_task(void *param);
+
+/// Press-duration thresholds. Public so the status LED can track them.
+#define BUTTON_SHORT_MAX_MS   5000    // release ≤ this → relay toggle
+#define BUTTON_RESET_HOLD_MS  10000   // hold ≥ this → factory reset
+
+/// Milliseconds the button has been held right now, or 0 if released.
+/// Single writer (button_task) / single reader (led_task) — no lock.
+uint32_t button_held_ms(void);

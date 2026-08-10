@@ -23,6 +23,10 @@ bool wifi_prov_is_provisioned(void);
 /// Returns true if WiFi credentials have been stored.
 bool wifi_prov_has_wifi(void);
 
+/// True if the WiFi station currently has a live link (has an IP).
+/// Distinct from wifi_prov_has_wifi() (creds stored, but maybe offline).
+bool wifi_prov_is_link_up(void);
+
 /// Register the provisioning GATT service.
 /// Call alongside gatt_server_init(), before nimble_port_freertos_init().
 void wifi_prov_gatt_init(void);
