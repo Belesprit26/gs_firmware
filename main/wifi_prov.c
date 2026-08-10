@@ -580,6 +580,10 @@ bool wifi_prov_is_link_up(void) {
     return s_wifi_connected;
 }
 
+prov_status_t wifi_prov_status(void) {
+    return s_prov_status;
+}
+
 bool wifi_prov_is_provisioned(void) {
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) return false;

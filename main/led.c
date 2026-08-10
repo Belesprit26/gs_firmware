@@ -155,7 +155,24 @@ void led_task(void *param)
             setup = !wifi_prov_is_provisioned();
             base  = connectivity_colour();
         }
-        if (setup || relay) put(base, breathe(tick, BREATHE_TICKS));  // waiting / ON
-        else                put(base, 90);                            // steady dim / OFF
+        if (setup) {
+            // Provisioning feedback while unprovisioned.
+            switch (wifi_prov_status()) {
+                case PROV_CONNECTING:
+                    put(C_GREEN, (tick % 16 < 8) ? 255 : 0);   // ~2 Hz: connecting
+                    break;
+                case PROV_WIFI_FAIL:
+                case PROV_ERROR:
+                    put(C_RED, (tick % 16 < 8) ? 255 : 0);     // ~2 Hz: setup failed
+                    break;
+                default:
+                    put(C_WHITE, breathe(tick, BREATHE_TICKS)); // waiting for setup
+                    break;
+            }
+        } else if (relay) {
+            put(base, breathe(tick, BREATHE_TICKS));   // breathe = relay ON
+        } else {
+            put(base, 90);                             // steady dim = relay OFF
+        }
     }
 }

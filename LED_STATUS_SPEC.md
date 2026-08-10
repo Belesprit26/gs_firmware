@@ -4,9 +4,9 @@ Status: **core implemented** — `main/led.c` + `led.h`, wired in `main.c`,
 task `led_task`. Implemented: resting colours (white / blue / green / amber)
 with breathe (ON) / steady (OFF), the button blackout + toggle-confirm
 (white→green/red→white) + wipe strobe / solid-red, and the relay-edge
-confirm from any source. **Deferred to a later pass:** the detailed
-provisioning sub-status (connecting green-blink, wifi-fail red-blink — needs
-a `prov_status` getter) and the OTA / sensor-offline / leak overlays.
+confirm from any source, plus provisioning feedback (connecting green-blink,
+wifi-fail red-blink) via `wifi_prov_status()`. **Deferred:** the OTA /
+sensor-offline / leak overlays.
 Written but **not yet compiled** (no local ESP-IDF) — bench validation is §8
 of `TEST_CHECKLIST.md`.
 

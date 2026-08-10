@@ -27,6 +27,9 @@ bool wifi_prov_has_wifi(void);
 /// Distinct from wifi_prov_has_wifi() (creds stored, but maybe offline).
 bool wifi_prov_is_link_up(void);
 
+/// Current provisioning status (for the status LED's setup feedback).
+prov_status_t wifi_prov_status(void);
+
 /// Register the provisioning GATT service.
 /// Call alongside gatt_server_init(), before nimble_port_freertos_init().
 void wifi_prov_gatt_init(void);
