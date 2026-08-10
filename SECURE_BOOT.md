@@ -12,6 +12,66 @@ encryption is on, OTA is the only way to update a unit.
 
 ---
 
+## The three gaps, and the simplest path to close them
+
+Three distinct weaknesses in the OTA channel on the default build:
+
+1. **Unsigned images.** The device runs any well-formed image the manifest
+   points at — an ESP-IDF structural check, not a signature check — and the
+   manifest `sha256` is written but never verified on-device. A holder of
+   publish credentials could push a forged image.
+2. **World-readable binary.** `gs_rework/storage.rules` serves `/firmware/**`
+   with `read: if true`; anyone with the URL can download and reverse-engineer
+   the firmware.
+3. **Plaintext secrets at rest.** Flash is unencrypted; a dumped chip exposes
+   the WiFi PSK, Firebase refresh token and owner key.
+
+Close them cheapest-first. Each tier ships on its own; only the last burns
+eFuses. Keep to this order — don't jump straight to B2 to "do it properly":
+the cheap tiers carry most of the value at none of the irreversible risk.
+
+### B0 — no keys, no eFuses, reversible (do with / right after OTA validation)
+- **Lock the binary down (gap 2) — path-scoped, do NOT touch legacy.** The
+  blanket `storage.rules` `/firmware/{allPaths=**}: read: if true` is public
+  **on purpose**: the fielded legacy `GeyserSwitch_Orange` units download OTA
+  unauthenticated and MUST keep public read (see the legacy-fleet constraint in
+  the comment on that rule). So scope the lockdown to the **new** path only —
+  publish gs_rework binaries with a Firebase Storage **download token** and a
+  tokenised manifest URL (`…?alt=media&token=<uuid>`), then make
+  `firmware/gs_rework/**` non-public while the legacy path stays readable. Note
+  Storage rules are **additive** (any matching `allow` grants access), so you
+  can't just add a nested `read:false` under the broad `read:true` — you must
+  *narrow* the broad allow and enumerate the legacy path as the explicit public
+  one. Needs the legacy object path; the **device change is zero** (it takes the
+  URL verbatim). Reversible. **[deferred until the legacy path is confirmed.]**
+- **Verify the manifest hash on-device (gap 1, integrity).** *(Implemented —
+  `ota.c` `image_sha256_ok`: hashes the freshly-written image and compares it to
+  the manifest `sha256` before the boot pointer flips.)* Catches corruption or a
+  swapped object, **not** a forged manifest — real authenticity is B1.
+
+### B1 — signed OTA images, still no eFuses, reversible (secure the channel)
+- Enable `CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT` with a v2 RSA/ECDSA
+  signing scheme, **without** `CONFIG_SECURE_BOOT`. The app then verifies an
+  image signature before applying an OTA, so a compromised manifest or bucket
+  **cannot** push an image you didn't sign — closing gap 1 for the remote
+  channel. No eFuse burn → reversible, and it uses the **same** offline signing
+  key as B2, so it is not throwaway work. It does not stop a physical attacker
+  reflashing the part; that is B2.
+
+### B2 — full hardware root of trust, IRREVERSIBLE (production; closes gap 3)
+- Secure Boot v2 + Flash Encryption + NVS encryption — the runbook below. The
+  only thing that closes gap 3 (secrets at rest) and hardware-roots the
+  signature guarantee. Burns eFuses → a one-time production step, done **only
+  after** B0/B1 and OTA are proven.
+
+**Interim risk before B2 (documented, accepted):** a physically stolen unit
+leaks its WiFi PSK and can impersonate *its own* Firebase identity (already
+uid-scoped to a single device) until revoked; the owner key is rotatable via
+the existing reset-key flow. Blast radius is one household, revocable
+server-side.
+
+---
+
 ## What this gives you
 
 | Feature | Protects against |
