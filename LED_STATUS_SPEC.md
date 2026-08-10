@@ -119,10 +119,9 @@ The instant the button goes **down**, the LED **blacks out** — an immediate
 - **Sensor offline (attention)** — a brief **red triple-blink every ~10 s**
   over the resting state: non-intrusive "check the app" without hijacking the
   colour.
-- **Leak detected (critical)** — the roadmap has a leak sensor; if/when it's
-  wired, this should be the **highest-priority** overlay: a fast, unmistakable
-  **red/off strobe** that overrides everything until cleared. Full app +
-  firmware + LED path: `gs_rework/documentation/LEAK_ALERT_SPEC.md`.
+- **Leak** — deliberately **not** an LED state: a water leak alerts the app
+  only (`gs_rework/documentation/LEAK_ALERT_SPEC.md`), to keep the LED's state
+  set small.
 
 ## Notes
 
