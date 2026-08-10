@@ -72,6 +72,36 @@ server-side.
 
 ---
 
+## B1 runbook — signed OTA images (no eFuses, reversible)
+
+Closes gap 1 (a compromised manifest / bucket can't push firmware you didn't
+sign) **without** the irreversible eFuse burn of B2. The device verifies each
+OTA image's signature before applying it — ESP-IDF does this automatically for
+the build below, so there is **no app / `ota.c` change**.
+
+1. **Generate the key (once).** `. $IDF_PATH/export.sh`, then
+   `./tools/gen_secure_boot_key.sh` → `secure_boot_signing_key.pem` (RSA-3072,
+   the **same** key B2 reuses). Move it to offline storage; it's gitignored.
+2. **Build signed.** `idf.py fullclean`, then
+   `idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.signed" build`.
+   The build signs the app automatically.
+3. **Confirm the symbols took.** The signed-app Kconfig names can shift
+   between IDF minor versions — check `idf.py menuconfig → Security features →
+   "Require signed app images"` and that the build log reports app signing.
+4. **Flash to a bench board.** Normal `idf.py flash` — no eFuses burned.
+5. **Publish + validate** (this is test §7 in `TEST_CHECKLIST.md`):
+   - Publish a signed update via `tools/publish_firmware.sh` → device
+     **accepts** and applies it.
+   - Publish an **unsigned** build (built without the fragment), or one signed
+     with a different key → device **rejects** it and keeps running.
+   - Confirm rollback still works (a crashing signed build reverts).
+
+To turn B1 off, just build without the fragment — nothing is burned. When
+you're ready for the full hardware root of trust + at-rest secrecy, B2 (below)
+reuses the same key and adds Secure Boot + Flash/NVS encryption.
+
+---
+
 ## What this gives you
 
 | Feature | Protects against |

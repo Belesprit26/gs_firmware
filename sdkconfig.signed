@@ -1,0 +1,36 @@
+# ─────────────────────────────────────────────────────────────────
+#  B1 — Signed OTA images, WITHOUT Secure Boot / Flash Encryption
+# ─────────────────────────────────────────────────────────────────
+#
+#  Reversible. NO eFuses are burned. This makes the OTA path REQUIRE a
+#  valid signature: the device verifies each image against the public key
+#  embedded in the app before applying an update, so a compromised manifest
+#  or Storage bucket cannot push firmware you did not sign (closes gap 1 of
+#  SECURE_BOOT.md for the remote channel).
+#
+#  It does NOT verify at every boot (that needs Secure Boot, B2) and does
+#  NOT encrypt secrets at rest (B2). It secures the remote OTA channel only.
+#  No app/ota.c change — ESP-IDF's OTA path does the signature check.
+#
+#  Apply on top of the defaults:
+#    idf.py fullclean
+#    idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.signed" build
+#
+#  Uses the SAME RSA-3072 key as full Secure Boot (B2), so it is not
+#  throwaway work. Generate it once with tools/gen_secure_boot_key.sh; keep
+#  it OFFLINE and out of git (.gitignore already covers *.pem).
+#
+#  ⚠️  The signed-app Kconfig symbol names can shift between ESP-IDF minor
+#      versions. Before relying on this fragment, open
+#        idf.py menuconfig → Security features → "Require signed app images"
+#      and confirm these took (the build log should report the app being
+#      signed). Adjust the symbols here to match your IDF version if needed.
+
+# ── Require signed app images, verified on OTA update (no secure boot) ──
+CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y
+CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
+CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=y
+
+# ── Signing key (RSA-3072, Secure Boot v2 format; same key B2 reuses) ──
+# Relative to the project root. Generate with tools/gen_secure_boot_key.sh.
+CONFIG_SECURE_BOOT_SIGNING_KEY="secure_boot_signing_key.pem"
