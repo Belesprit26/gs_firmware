@@ -538,13 +538,13 @@ static const struct ble_gatt_svc_def prov_svcs[] = {
             {   // 0x11 — WiFi credentials (encrypted: contains password)
                 .uuid       = &uuid_wifi_creds.u,
                 .access_cb  = on_wifi_creds,
-                .flags      = BLE_GATT_CHR_F_READ_ENC
-                            | BLE_GATT_CHR_F_WRITE_ENC,
+                .flags      = BLE_GATT_CHR_F_READ  | BLE_GATT_CHR_F_READ_ENC
+                            | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
             },
             {   // 0x12 — User binding (encrypted: triggers provisioning)
                 .uuid       = &uuid_user_bind.u,
                 .access_cb  = on_user_bind,
-                .flags      = BLE_GATT_CHR_F_WRITE_ENC,
+                .flags      = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
             },
             {   // 0x13 — Provisioning status
                 .uuid       = &uuid_prov_status.u,
@@ -555,18 +555,18 @@ static const struct ble_gatt_svc_def prov_svcs[] = {
             {   // 0x14 — Device nickname (encrypted)
                 .uuid       = &uuid_dev_nickname.u,
                 .access_cb  = on_dev_nickname,
-                .flags      = BLE_GATT_CHR_F_READ_ENC
-                            | BLE_GATT_CHR_F_WRITE_ENC,
+                .flags      = BLE_GATT_CHR_F_READ  | BLE_GATT_CHR_F_READ_ENC
+                            | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
             },
             {   // 0x15 — Firebase auth data (encrypted: contains tokens)
                 .uuid       = &uuid_auth_data.u,
                 .access_cb  = on_auth_data,
-                .flags      = BLE_GATT_CHR_F_WRITE_ENC,
+                .flags      = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
             },
             {   // 0x16 — Owner key (encrypted; write at provisioning/rotation)
                 .uuid       = &uuid_owner_key.u,
                 .access_cb  = on_owner_key,
-                .flags      = BLE_GATT_CHR_F_WRITE_ENC,
+                .flags      = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
             },
             { 0 }, // sentinel
         },

@@ -483,22 +483,22 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
             {   // 0x03 — Geyser state (encrypted: controls relay)
                 .uuid       = &uuid_state.u,
                 .access_cb  = on_state_access,
-                .flags      = BLE_GATT_CHR_F_READ_ENC
-                            | BLE_GATT_CHR_F_WRITE_ENC
+                .flags      = BLE_GATT_CHR_F_READ  | BLE_GATT_CHR_F_READ_ENC
+                            | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC
                             | BLE_GATT_CHR_F_NOTIFY,
                 .val_handle = &h_state,
             },
             {   // 0x04 — Temperature limits + auto-reheat (encrypted)
                 .uuid       = &uuid_limits.u,
                 .access_cb  = on_limits_access,
-                .flags      = BLE_GATT_CHR_F_READ_ENC
-                            | BLE_GATT_CHR_F_WRITE_ENC,
+                .flags      = BLE_GATT_CHR_F_READ  | BLE_GATT_CHR_F_READ_ENC
+                            | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
             },
             {   // 0x05 — Timer configuration (encrypted)
                 .uuid       = &uuid_timers.u,
                 .access_cb  = on_timers_access,
-                .flags      = BLE_GATT_CHR_F_READ_ENC
-                            | BLE_GATT_CHR_F_WRITE_ENC,
+                .flags      = BLE_GATT_CHR_F_READ  | BLE_GATT_CHR_F_READ_ENC
+                            | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
             },
             {   // 0x06 — Device info
                 .uuid       = &uuid_info.u,
@@ -508,7 +508,7 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
             {   // 0x08 — Time sync (phone → ESP, encrypted)
                 .uuid       = &uuid_tsync.u,
                 .access_cb  = on_time_sync,
-                .flags      = BLE_GATT_CHR_F_WRITE_ENC,
+                .flags      = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
             },
             {   // 0x09 — Device Events (buffered + real-time notify)
                 .uuid       = &uuid_events.u,
@@ -524,7 +524,7 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
             {   // 0x0B — Buffer Acknowledge (clear both buffers, encrypted)
                 .uuid       = &uuid_ack.u,
                 .access_cb  = on_ack_access,
-                .flags      = BLE_GATT_CHR_F_WRITE_ENC,
+                .flags      = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
             },
             {   // 0x0C — Stored Device ID (unencrypted, for iOS re-pair)
                 .uuid       = &uuid_devid.u,
@@ -534,20 +534,20 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
             {   // 0x0D — Max continuous run timer (encrypted)
                 .uuid       = &uuid_maxon.u,
                 .access_cb  = on_maxon_access,
-                .flags      = BLE_GATT_CHR_F_READ_ENC
-                            | BLE_GATT_CHR_F_WRITE_ENC,
+                .flags      = BLE_GATT_CHR_F_READ  | BLE_GATT_CHR_F_READ_ENC
+                            | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
             },
             {   // 0x0E — Owner auth: nonce read / HMAC unlock (encrypted)
                 .uuid       = &uuid_oauth.u,
                 .access_cb  = on_oauth_access,
-                .flags      = BLE_GATT_CHR_F_READ_ENC
-                            | BLE_GATT_CHR_F_WRITE_ENC,
+                .flags      = BLE_GATT_CHR_F_READ  | BLE_GATT_CHR_F_READ_ENC
+                            | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
             },
             {   // 0x0F — Run status + interval-fallback opt-out (encrypted)
                 .uuid       = &uuid_runst.u,
                 .access_cb  = on_runst_access,
-                .flags      = BLE_GATT_CHR_F_READ_ENC
-                            | BLE_GATT_CHR_F_WRITE_ENC,
+                .flags      = BLE_GATT_CHR_F_READ  | BLE_GATT_CHR_F_READ_ENC
+                            | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
             },
             { 0 }, // sentinel
         },
