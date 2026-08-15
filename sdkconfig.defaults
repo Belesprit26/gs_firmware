@@ -18,6 +18,16 @@ CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=256
 # owner key over this link.
 CONFIG_BT_NIMBLE_SM_LEGACY=n
 CONFIG_BT_NIMBLE_SM_SC=y
+# Keep bonding keys across reboots. Defaults to `n` in IDF, which stores
+# them in RAM only — so every power cycle forgot every paired phone and
+# the owner was asked to pair again. A geyser controller is power-cycled
+# routinely (load shedding, breaker, the geyser's own isolator), so in
+# the field that is not an edge case, it is the normal state.
+#
+# Bonds are what make the encrypted characteristics usable without a
+# prompt; without persistence the _ENC flags effectively re-authenticate
+# from scratch after every outage.
+CONFIG_BT_NIMBLE_NVS_PERSIST=y
 
 # ── WiFi ──────────────────────────────────────────────────────────
 CONFIG_ESP_WIFI_ENABLED=y
