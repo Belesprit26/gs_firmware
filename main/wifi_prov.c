@@ -77,6 +77,35 @@ static void backoff_timer_cb(TimerHandle_t timer) {
     esp_wifi_connect();
 }
 
+/// What a run of [prov_connect_task] is for.
+///
+/// Only first-time provisioning owns the provisioning status. A boot-time
+/// reconnect must not touch it: the device is already provisioned, NVS
+/// says so, and a join that is merely slow is not a provisioning failure.
+///
+/// Values start at 1 deliberately. This used to be a bare bool, and a
+/// stale `false` would otherwise land silently on a valid mode.
+typedef enum {
+    PROV_RUN_WITH_WIFI = 1,  ///< credentials just written over BLE
+    PROV_RUN_BLE_ONLY  = 2,  ///< provisioned deliberately without WiFi
+    PROV_RUN_RECONNECT = 3,  ///< already provisioned, rejoining after boot
+} prov_run_mode_t;
+
+// Defined below, but wifi_connect() needs it to report that a slow join
+// is still in progress.
+static void notify_prov_status(prov_status_t status);
+
+/// Budget for a join, split into slices.
+///
+/// The app arms a 30 s safety timeout and re-arms it on every
+/// non-terminal status, so re-announcing PROV_CONNECTING between slices
+/// buys real waiting time without risking the sheet giving up first.
+/// A single flat 15 s wait used to expire mid-scan on a weak network:
+/// measured 18 s to an IP on a -74 dBm AP, most of it spent scanning,
+/// and worse during provisioning when BLE and WiFi share the radio.
+#define PROV_WIFI_SLICE_MS 20000
+#define PROV_WIFI_SLICES   2
+
 // ── UUID definitions ─────────────────────────────────────────────
 //
 // Provisioning service: 47530010-7652-4543-b201-c4b801a6c700
@@ -172,6 +201,15 @@ static void wifi_stack_init(void) {
     if (s_wifi_inited) return;
     s_wifi_inited = true;
 
+    // Created before the handlers are registered, and never destroyed.
+    // It used to be created per connect and deleted immediately after
+    // the wait, which left the event handler — running on the event
+    // task — free to test the pointer and then use it after this task
+    // had freed it. A join landing exactly on the timeout could write
+    // into freed memory. One long-lived group removes the window; the
+    // bits are cleared before each attempt instead.
+    s_prov_wifi_events = xEventGroupCreate();
+
     esp_netif_init();
     esp_event_loop_create_default();
     esp_netif_create_default_wifi_sta();
@@ -185,7 +223,13 @@ static void wifi_stack_init(void) {
                                         wifi_event_handler, NULL, NULL);
 }
 
-static bool wifi_connect(const char *ssid, const char *pass) {
+/// Join [ssid], blocking until it succeeds, fails, or the budget runs out.
+///
+/// [announce] re-sends PROV_CONNECTING between slices so a listening app
+/// keeps its safety timeout alive. Only first-time provisioning sets it:
+/// a reconnect must stay silent, or it would overwrite the provisioning
+/// status of a device that is already provisioned.
+static bool wifi_connect(const char *ssid, const char *pass, bool announce) {
     s_retry_count = 0;
     wifi_stack_init();
 
@@ -205,7 +249,8 @@ static bool wifi_connect(const char *ssid, const char *pass) {
     esp_wifi_stop();
     s_wifi_connected = false;
 
-    s_prov_wifi_events = xEventGroupCreate();
+    xEventGroupClearBits(s_prov_wifi_events,
+                         PROV_CONNECTED_BIT | PROV_FAIL_BIT);
 
     wifi_config_t wifi_cfg = {0};
     strncpy((char *)wifi_cfg.sta.ssid, ssid, sizeof(wifi_cfg.sta.ssid) - 1);
@@ -218,14 +263,22 @@ static bool wifi_connect(const char *ssid, const char *pass) {
 
     ESP_LOGI(TAG, "Connecting to \"%s\"...", ssid);
 
-    EventBits_t bits = xEventGroupWaitBits(s_prov_wifi_events,
-        PROV_CONNECTED_BIT | PROV_FAIL_BIT,
-        pdTRUE, pdFALSE,
-        pdMS_TO_TICKS(15000));
+    EventBits_t bits = 0;
+    for (int slice = 0; slice < PROV_WIFI_SLICES; slice++) {
+        bits = xEventGroupWaitBits(s_prov_wifi_events,
+            PROV_CONNECTED_BIT | PROV_FAIL_BIT,
+            pdTRUE, pdFALSE,
+            pdMS_TO_TICKS(PROV_WIFI_SLICE_MS));
 
-    EventGroupHandle_t tmp = s_prov_wifi_events;
-    s_prov_wifi_events = NULL;
-    vEventGroupDelete(tmp);
+        if (bits & (PROV_CONNECTED_BIT | PROV_FAIL_BIT)) break;
+
+        // Neither outcome yet — still scanning or associating. Say so,
+        // so the app restarts its clock rather than abandoning a join
+        // that is merely slow.
+        ESP_LOGI(TAG, "Still joining \"%s\" (%ds elapsed)", ssid,
+                 (slice + 1) * (PROV_WIFI_SLICE_MS / 1000));
+        if (announce) notify_prov_status(PROV_CONNECTING);
+    }
 
     if (bits & PROV_CONNECTED_BIT) {
         ESP_LOGI(TAG, "WiFi connected");
@@ -291,12 +344,13 @@ static void notify_prov_status(prov_status_t status) {
 // ── Provisioning task (runs on a separate FreeRTOS task) ─────────
 
 static void prov_connect_task(void *param) {
-    bool with_wifi = (bool)(uintptr_t)param;
+    const prov_run_mode_t mode = (prov_run_mode_t)(uintptr_t)param;
 
-    if (with_wifi) {
+    switch (mode) {
+    case PROV_RUN_WITH_WIFI:
         notify_prov_status(PROV_CONNECTING);
 
-        if (wifi_connect(s_ssid, s_pass)) {
+        if (wifi_connect(s_ssid, s_pass, true)) {
             time_sync_start_sntp();
 
             notify_prov_status(PROV_WIFI_OK);
@@ -307,11 +361,35 @@ static void prov_connect_task(void *param) {
         } else {
             notify_prov_status(PROV_WIFI_FAIL);
         }
-    } else {
+        break;
+
+    case PROV_RUN_BLE_ONLY:
         save_provisioning(false);
         notify_prov_status(PROV_BLE_ONLY_OK);
         ESP_LOGI(TAG, "BLE-only provisioning complete (user=%s, nick=%s)",
                  s_user_id, s_nickname);
+        break;
+
+    case PROV_RUN_RECONNECT:
+        // Deliberately silent about provisioning status.
+        //
+        // This path runs at every boot for an already-provisioned device.
+        // It used to share the provisioning branch, so a join that missed
+        // the timeout left s_prov_status = PROV_WIFI_FAIL — and since the
+        // status characteristic serves that value, the device then told
+        // the app it had no WiFi set up for the rest of its uptime, while
+        // sitting online with a valid token. Observed on a -74 dBm AP:
+        // IP at 18 s against a 15 s wait.
+        //
+        // A failure here is not terminal either. The event handler keeps
+        // retrying with exponential backoff, and SNTP starts on any later
+        // IP acquisition, so a late join still recovers on its own.
+        if (wifi_connect(s_ssid, s_pass, false)) {
+            ESP_LOGI(TAG, "WiFi reconnected");
+        } else {
+            ESP_LOGW(TAG, "WiFi reconnect not confirmed — backoff continues");
+        }
+        break;
     }
 
     s_prov_in_progress = false;
@@ -413,8 +491,10 @@ static int on_user_bind(uint16_t conn, uint16_t attr,
     portEXIT_CRITICAL(&s_prov_mux);
 
     bool with_wifi = s_wifi_requested && s_ssid[0] != '\0';
+    const prov_run_mode_t mode =
+        with_wifi ? PROV_RUN_WITH_WIFI : PROV_RUN_BLE_ONLY;
     if (xTaskCreate(prov_connect_task, "prov", 4096,
-                    (void *)(uintptr_t)with_wifi, 5, NULL) != pdPASS) {
+                    (void *)(uintptr_t)mode, 5, NULL) != pdPASS) {
         ESP_LOGE(TAG, "Failed to create provisioning task");
         s_prov_in_progress = false;
         return BLE_ATT_ERR_INSUFFICIENT_RES;
@@ -677,7 +757,7 @@ void wifi_prov_start_wifi(void) {
     portEXIT_CRITICAL(&s_prov_mux);
 
     if (xTaskCreate(prov_connect_task, "wifi_rc", 4096,
-                    (void *)(uintptr_t)true, 3, NULL) != pdPASS) {
+                    (void *)(uintptr_t)PROV_RUN_RECONNECT, 3, NULL) != pdPASS) {
         ESP_LOGE(TAG, "Failed to create WiFi reconnect task");
         s_prov_in_progress = false;
     }
