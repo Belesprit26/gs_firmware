@@ -1,0 +1,177 @@
+GeyserSwitch Source-Available Evaluation Licence
+Version 1.0
+
+Copyright (c) 2026 Belesprit26. All rights reserved.
+
+
+0. SUMMARY (not the licence — read the terms below)
+
+    You may look at this code and build it to try it out.
+    You may not use it commercially, redistribute it, or ship anything
+    based on it. This is NOT open source.
+
+    This firmware switches mains electricity. Read Section 5.
+
+
+1. DEFINITIONS
+
+   "The Software" means the source code, configuration, documentation
+   and other material in this repository, EXCEPT the third-party
+   components identified in Section 6.
+
+   "The Licensor" means the copyright holder named above.
+
+   "You" means the individual or entity exercising the permissions
+   granted here.
+
+   "Commercial Use" means any use intended for or directed toward
+   commercial advantage or monetary compensation, whether or not money
+   changes hands. This includes use inside a business or by a sole
+   trader, use in providing a service to others, and use in producing,
+   installing, servicing or selling any product.
+
+
+2. GRANT OF PERMISSION
+
+   Subject to every condition in this licence, the Licensor grants You a
+   non-exclusive, non-transferable, revocable, royalty-free permission
+   to:
+
+   (a) view, read and study the Software;
+
+   (b) copy and compile the Software, and flash the resulting build for
+       Your own private, personal, non-commercial evaluation and
+       testing, on hardware You own; and
+
+   (c) quote short excerpts for the purposes of commentary, review,
+       teaching or research, with attribution to this repository.
+
+   No other permission is granted. Rights not expressly granted are
+   reserved.
+
+
+3. CONDITIONS AND RESTRICTIONS
+
+   You may NOT, without the Licensor's prior written permission:
+
+   (a) make any Commercial Use of the Software;
+
+   (b) redistribute, publish, transmit, sublicense, sell, rent, lease or
+       lend the Software or any part of it, in source or compiled form,
+       including publishing a firmware binary for download or
+       over-the-air update;
+
+   (c) host or make the Software available to third parties as a service;
+
+   (d) distribute modified versions or derivative works. You may modify
+       Your own private copy for the evaluation permitted in Section
+       2(b); You may not distribute the result;
+
+   (e) manufacture, assemble, install, sell or distribute any hardware
+       device that incorporates or is derived from the Software;
+
+   (f) deploy the Software in any production, operational or
+       safety-relevant setting, or in any installation relied upon by
+       anyone other than You;
+
+   (g) use the Software, in whole or in part, as training data or input
+       for any machine-learning model, dataset or corpus; or
+
+   (h) remove, obscure or alter any copyright, licence or attribution
+       notice.
+
+
+4. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE AND
+   NON-INFRINGEMENT.
+
+
+5. SAFETY NOTICE AND LIMITATION OF LIABILITY
+
+   THIS FIRMWARE SWITCHES MAINS ELECTRICITY SUPPLIED TO A DOMESTIC
+   WATER HEATER (GEYSER), BY DRIVING A RELAY ON A LIVE CIRCUIT.
+   Incorrect wiring, assembly, configuration or use can cause electric
+   shock, fire, burns, scalding, water damage, property damage, serious
+   injury or death.
+
+   Specific hazards include, without limitation: contact with live
+   conductors during assembly or servicing; relay or contactor failure
+   leaving the element energised; loss or failure of the temperature
+   sensor; failure of any software interlock, thermostat limit or
+   run-time cutoff; and interaction with the water heater's own
+   thermostat, pressure-relief valve and earth-leakage protection.
+
+   The Software has not been certified, approved or tested against any
+   electrical safety standard. It carries no safety integrity rating,
+   and it must not be treated as a protective device. It is published
+   for inspection and experimentation only, and it is not fit for
+   installation in a dwelling relied upon by anyone.
+
+   Electrical work must be carried out by a suitably qualified and,
+   where required, licensed person, in accordance with the wiring rules
+   and regulations applicable in Your jurisdiction. Isolate the supply
+   before working on any circuit. You are solely responsible for
+   compliance, and for any certificate of compliance your jurisdiction
+   requires.
+
+   TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL
+   THE LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES, LOSS OR OTHER
+   LIABILITY, WHETHER IN CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+   OF OR IN CONNECTION WITH THE SOFTWARE OR ITS USE. YOU ASSUME THE
+   ENTIRE RISK OF BUILDING, FLASHING, WIRING AND OPERATING IT.
+
+   Nothing in this licence excludes or limits liability that cannot
+   lawfully be excluded or limited.
+
+
+6. THIRD-PARTY COMPONENTS
+
+   This repository contains and depends on third-party software that is
+   NOT covered by this licence and that remains subject to its own
+   terms. Nothing here narrows the rights granted to You by those
+   licences, and nothing here purports to relicense them.
+
+   Vendored in this repository, each under the Apache Licence 2.0 and
+   each retaining its own LICENSE file:
+
+     components/espressif__ds18b20
+     components/espressif__onewire_bus
+     managed_components/espressif__led_strip
+
+   Built against, but not redistributed here:
+
+     ESP-IDF and its components (Espressif Systems), Apache Licence 2.0,
+     together with the further licences listed in the ESP-IDF
+     distribution.
+
+
+7. TERMINATION
+
+   The permissions in Section 2 terminate automatically and immediately
+   if You breach any term of this licence. On termination You must stop
+   using the Software and destroy all copies in Your possession.
+
+   The Licensor may revoke these permissions at any time, for any
+   reason. Sections 4, 5 and 8 survive termination.
+
+
+8. GENERAL
+
+   This licence does not grant permission to use the trade names,
+   trademarks, service marks or product names of the Licensor, including
+   "GeyserSwitch", except as required for reasonable and customary
+   description of the origin of the Software.
+
+   If any provision is held unenforceable, it shall be modified only to
+   the minimum extent necessary to make it enforceable, and the
+   remaining provisions remain in full force.
+
+
+9. OTHER PERMISSIONS
+
+   Any use beyond Section 2 — commercial use, redistribution,
+   manufacture, or deployment — requires a separate written agreement.
+   Enquiries: open an issue on this repository.
