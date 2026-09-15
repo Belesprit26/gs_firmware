@@ -49,9 +49,9 @@ void button_init(gpio_num_t pin) {
 // ── Task ─────────────────────────────────────────────────────────
 
 void button_task(void *param) {
-    bool was_pressed    = false;
+    bool was_pressed = false;
     TickType_t press_start = 0;
-    bool reset_fired    = false;
+    bool reset_fired = false;
 
     ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
 
@@ -63,9 +63,9 @@ void button_task(void *param) {
 
         // ── Rising edge: button just pressed ─────────────────────
         if (pressed && !was_pressed) {
-            press_start   = xTaskGetTickCount();
+            press_start = xTaskGetTickCount();
             s_press_start = press_start;
-            reset_fired   = false;
+            reset_fired = false;
         }
 
         // ── Held: check for factory-reset threshold ──────────────

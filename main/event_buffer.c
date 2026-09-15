@@ -38,8 +38,8 @@ void event_buffer_push_event(uint8_t type, uint8_t temp) {
     time_t now;
     time(&now);
 
-    s_events[s_evt_head].type      = type;
-    s_events[s_evt_head].temp      = temp;
+    s_events[s_evt_head].type = type;
+    s_events[s_evt_head].temp = temp;
     s_events[s_evt_head].timestamp = (uint32_t)now;
 
     s_evt_head = (s_evt_head + 1) % EVENT_BUF_MAX;
